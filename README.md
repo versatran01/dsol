@@ -1,14 +1,20 @@
 # 🛢️ DSOL: Direct Sparse Odometry Lite
 
-Sample realsense data at
-https://www.dropbox.com/s/bidng4gteeh8sx3/20220307_172336.bag?dl=0
-https://www.dropbox.com/s/e8aefoji684dp3r/20220307_171655.bag?dl=0
+
 
 ## Supported datasets
 
-VKITTI2
-KITTI Odom
-TartanAir
+VKITTI2 https://europe.naverlabs.com/research/computer-vision/proxy-virtual-worlds-vkitti-2/
+
+KITTI Odom 
+
+TartanAir https://theairlab.org/tartanair-dataset/
+
+Sample realsense data at
+
+https://www.dropbox.com/s/bidng4gteeh8sx3/20220307_172336.bag?dl=0
+
+https://www.dropbox.com/s/e8aefoji684dp3r/20220307_171655.bag?dl=0
 
 ## Build
 
