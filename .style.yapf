@@ -1,0 +1,7 @@
+[style]
+based_on_style = yapf
+indent_width = 4
+column_limit = 80
+spaces_around_power_operator = True
+each_dict_entry_on_separate_line = False
+force_multiline_dict = True

@@ -1,0 +1,49 @@
+odom:
+  marg: false
+  num_kfs: 4
+  num_levels: 4
+  min_track_ratio: 0.35
+  min_track_per_kf: 10
+  vis_min_depth: 1.0
+  reinit: false
+  init_depth: false
+  init_stereo: true
+  init_align: true
+select:
+  sel_level: 1
+  cell_size: 16
+  min_grad: 8
+  max_grad: 64
+  nms_size: 1
+  min_ratio: 0.4
+  max_ratio: 0.6
+  reselect: true
+stereo:
+  half_rows: 2
+  half_cols: 3
+  match_level: 3
+  refine_size: 1
+  min_zncc: 0.8
+  min_depth: 1.0
+align:
+  max_iters: 6
+  max_levels: 0
+  rel_change: 0.01
+  affine: false
+  stereo: false
+  c2: 4
+  dof: 4
+  max_outliers: 1
+  grad_factor: 1.0
+  min_depth: 0.1
+adjust:
+  max_iters: 6
+  max_levels: 3
+  rel_change: 0.01
+  affine: false
+  stereo: true
+  c2: 4
+  dof: 4
+  max_outliers: 0
+  grad_factor: 1.0
+  min_depth: 0.1

@@ -1,0 +1,17 @@
+odom:
+  marg: false
+  num_kfs: 4
+  num_levels: 5
+  vis_min_depth: 4.0
+  reinit: true
+  init_depth: false
+  init_stereo: true
+  init_align: true
+stereo:
+  min_depth: 4.0
+align:
+  affine: false
+  stereo: false
+adjust:
+  affine: false
+  stereo: true

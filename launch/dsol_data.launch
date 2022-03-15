@@ -1,0 +1,45 @@
+<launch>
+    <arg name="debug" default="false"/>
+    <env if="$(arg debug)" name="ROSCONSOLE_CONFIG_FILE" value="$(find svcpp)/launch/debug.conf"/>
+
+    <arg name="start" default="0"/>
+    <arg name="end" default="0"/>
+    <arg name="reverse" default="false"/>
+
+    <arg name="tbb" default="0"/>
+    <arg name="log" default="5"/>
+    <arg name="vis" default="true"/>
+    <arg name="freq" default="10"/>
+    <arg name="save" default=""/>
+    <arg name="wait_ms" default="10"/>
+
+    <arg name="data" default="vk2"/>
+    <arg name="data_dir" default="/home/chao/Workspace/dataset/vkitti/Scene01/clone"/>
+    <!-- <arg name="data_dir" default="/home/chao/Workspace/dataset/kitti/dataset/sequences/00"/> -->
+    <!-- <arg name="data_dir" default="/home/chao/Workspace/dataset/tartan_air/gascola/Easy/P003"/> -->
+    <!-- <arg name="data_dir" default="/home/chao/Workspace/dataset/realsense/outdoor_fast"/> -->
+    <arg name="data_max_depth" default="100.0"/>
+    <arg name="cloud_max_depth" default="50.0"/>
+    <arg name="motion_alpha" default="0.5"/>
+
+    <node pkg="svcpp" type="sv_dsol_node_data" name="dsol_data" output="screen">
+        <rosparam command="load" file="$(find svcpp)/config/dsol.yaml"/>
+        <rosparam command="load" file="$(find svcpp)/config/dsol_$(arg data).yaml"/>
+
+        <param name="tbb" type="int" value="$(arg tbb)"/>
+        <param name="log" type="int" value="$(arg log)"/>
+        <param name="vis" type="bool" value="$(arg vis)"/>
+        <param name="freq" type="double" value="$(arg freq)"/>
+        <param name="save" type="string" value="$(arg save)"/>
+        <param name="wait_ms" type="int" value="$(arg wait_ms)"/>
+
+        <param name="data_dir" type="str" value="$(arg data_dir)"/>
+        <param name="data_max_depth" type="double" value="$(arg data_max_depth)"/>
+        <param name="cloud_max_depth" type="double" value="$(arg cloud_max_depth)"/>
+        <param name="motion_alpha" type="double" value="$(arg motion_alpha)"/>
+
+        <param name="start" type="int" value="$(arg start)"/>
+        <param name="end" type="int" value="$(arg end)"/>
+        <param name="reverse" type="bool" value="$(arg reverse)"/>
+    </node>
+</launch>
