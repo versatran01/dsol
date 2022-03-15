@@ -1,4 +1,4 @@
-# DSOL: Direct Sparse Odometry Lite
+# 🛢️ DSOL: Direct Sparse Odometry Lite
 
 Sample realsense data at
 https://www.dropbox.com/s/bidng4gteeh8sx3/20220307_172336.bag?dl=0
