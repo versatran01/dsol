@@ -2,7 +2,7 @@
 
 
 
-## Supported datasets
+## Datasets
 
 VKITTI2 https://europe.naverlabs.com/research/computer-vision/proxy-virtual-worlds-vkitti-2/
 
