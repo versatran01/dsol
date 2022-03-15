@@ -1,6 +1,10 @@
 # 🛢️ DSOL: Direct Sparse Odometry Lite
 
+## Reference
 
+Chao Qu, Shreyas S. Shivakumar, Ian D. Miller, Camillo J. Taylor
+
+https://youtu.be/yunBYUACUdg
 
 ## Datasets
 
@@ -26,9 +30,10 @@ Open rviz using the config in `launch/dsol.rviz`
 ```
 roslaunch dsol dsol_data.launch
 ```
-See launch files for more details on different datasets.
-See config folder for details on configs.
 
+See launch files for more details on different datasets.
+
+See config folder for details on configs.
 
 To run multithread and show timing every 5 frames do
 ```
@@ -43,8 +48,3 @@ See CMakeLists.txt for dependencies.
 
 This is the open-source version, advanced features are not included.
 
-## Reference
-
-Chao Qu, Shreyas S. Shivakumar, Ian D. Miller, Camillo J. Taylor
-
-https://youtu.be/yunBYUACUdg
