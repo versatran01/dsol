@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(svcpp)
+project(dsol)
 
 set(CMAKE_CXX_STANDARD 17)
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")

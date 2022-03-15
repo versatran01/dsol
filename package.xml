@@ -1,21 +1,18 @@
 <?xml version="1.0"?>
 <package format="2">
-    <name>svcpp</name>
+    <name>dsol</name>
     <version>0.0.0</version>
-    <description>The svcpp package</description>
+    <description>The dsol package</description>
 
     <maintainer email="quchao@seas.upenn.edu">chao</maintainer>
-    <license>SV</license>
+    <license>Apache-2.0</license>
     <buildtool_depend>catkin</buildtool_depend>
 
     <depend>roscpp</depend>
-    <depend>pcl_ros</depend>
     <depend>tf2_ros</depend>
     <depend>tf2_eigen</depend>
     <depend>cv_bridge</depend>
     <depend>image_transport</depend>
-    <depend>pcl_conversions</depend>
-    <depend>message_filters</depend>
 
     <depend>nav_msgs</depend>
     <depend>sensor_msgs</depend>
