@@ -22,13 +22,10 @@ enable_sanitizers(sv_options)
 find_package(
   catkin QUIET
   COMPONENTS roscpp
-             pcl_ros
              tf2_ros
              tf2_eigen
              cv_bridge
              image_transport
-             pcl_conversions
-             message_filters
              nav_msgs
              sensor_msgs
              visualization_msgs)
