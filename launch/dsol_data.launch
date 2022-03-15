@@ -1,12 +1,12 @@
 <launch>
     <arg name="debug" default="false"/>
-    <env if="$(arg debug)" name="ROSCONSOLE_CONFIG_FILE" value="$(find svcpp)/launch/debug.conf"/>
+    <env if="$(arg debug)" name="ROSCONSOLE_CONFIG_FILE" value="$(find dsol)/launch/debug.conf"/>
 
     <arg name="start" default="0"/>
     <arg name="end" default="0"/>
     <arg name="reverse" default="false"/>
 
-    <arg name="tbb" default="0"/>
+    <arg name="tbb" default="1"/>
     <arg name="log" default="5"/>
     <arg name="vis" default="true"/>
     <arg name="freq" default="10"/>
@@ -17,14 +17,13 @@
     <arg name="data_dir" default="/home/chao/Workspace/dataset/vkitti/Scene01/clone"/>
     <!-- <arg name="data_dir" default="/home/chao/Workspace/dataset/kitti/dataset/sequences/00"/> -->
     <!-- <arg name="data_dir" default="/home/chao/Workspace/dataset/tartan_air/gascola/Easy/P003"/> -->
-    <!-- <arg name="data_dir" default="/home/chao/Workspace/dataset/realsense/outdoor_fast"/> -->
     <arg name="data_max_depth" default="100.0"/>
     <arg name="cloud_max_depth" default="50.0"/>
     <arg name="motion_alpha" default="0.5"/>
 
-    <node pkg="svcpp" type="sv_dsol_node_data" name="dsol_data" output="screen">
-        <rosparam command="load" file="$(find svcpp)/config/dsol.yaml"/>
-        <rosparam command="load" file="$(find svcpp)/config/dsol_$(arg data).yaml"/>
+    <node pkg="dsol" type="sv_dsol_node_data" name="dsol_data" output="screen">
+        <rosparam command="load" file="$(find dsol)/config/dsol.yaml"/>
+        <rosparam command="load" file="$(find dsol)/config/dsol_$(arg data).yaml"/>
 
         <param name="tbb" type="int" value="$(arg tbb)"/>
         <param name="log" type="int" value="$(arg log)"/>

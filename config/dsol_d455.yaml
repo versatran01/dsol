@@ -1,6 +1,6 @@
 odom:
   marg: false
-  num_kfs: 7
+  num_kfs: 5
   num_levels: 4
   vis_min_depth: 0.5
   min_track_ratio: 0.4
@@ -17,7 +17,7 @@ align:
   max_iters: 6
   max_outliers: 1
   affine: false
-  stereo: true
+  stereo: false
 adjust:
   c2: 2
   max_iters: 6

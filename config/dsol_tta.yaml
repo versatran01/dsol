@@ -12,8 +12,8 @@ select:
 stereo:
   min_depth: 0.5
 align:
-  affine: true
-  stereo: true
+  affine: false
+  stereo: false
 adjust:
-  affine: true
+  affine: false
   stereo: true

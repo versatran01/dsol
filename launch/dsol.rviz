@@ -7,7 +7,7 @@ Panels:
         - /Global Options1
         - /Axes1
         - /Small1/OdomPath1
-        - /Large1/GtPath1
+        - /Large1
       Splitter Ratio: 0.5
     Tree Height: 813
   - Class: rviz/Selection
@@ -296,7 +296,7 @@ Visualization Manager:
           Axes Radius: 1
           Class: rviz/PoseArray
           Color: 255; 25; 0
-          Enabled: true
+          Enabled: false
           Head Length: 0.07000000029802322
           Head Radius: 0.029999999329447746
           Name: WindowPoses
@@ -306,7 +306,7 @@ Visualization Manager:
           Shape: Axes
           Topic: /dsol_data/poses
           Unreliable: false
-          Value: true
+          Value: false
         - Alpha: 1
           Axes Length: 20
           Axes Radius: 2
@@ -353,7 +353,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 136.39060974121094
+      Distance: 240.36685180664062
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1

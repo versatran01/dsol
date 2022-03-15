@@ -4,29 +4,41 @@ Sample realsense data at
 https://www.dropbox.com/s/bidng4gteeh8sx3/20220307_172336.bag?dl=0
 https://www.dropbox.com/s/e8aefoji684dp3r/20220307_171655.bag?dl=0
 
-Clone 
-https://github.com/versatran01/ouster_decoder
+## Supported datasets
 
+VKITTI2
+KITTI Odom
+TartanAir
 
+## Build
+
+This is a ros package, just put in a catkin workspace and build the workspace.
+
+## Run
 Open rviz using the config in `launch/dsol.rviz`
 
-Run
 ```
 roslaunch dsol dsol_data.launch
 ```
+See launch files for more details on different datasets.
+See config folder for details on configs.
 
-See CMakeLists.txt for dependencies.
 
 To run multithread and show timing every 5 frames do
 ```
 roslaunch dsol dsol_data.launch tbb:=1 log:=5
 ```
 
-This is the open-source version, some advanced features may be missing.
+## Dependencies
+
+See CMakeLists.txt for dependencies.
+
+## Disclaimer
+
+This is the open-source version, advanced features are not included.
 
 ## Reference
 
-Chao Qu, Shreyas S. Shivakumar, Iand D. Miller, Camillo J. Taylor
-
+Chao Qu, Shreyas S. Shivakumar, Ian D. Miller, Camillo J. Taylor
 
 https://youtu.be/yunBYUACUdg
