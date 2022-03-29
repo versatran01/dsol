@@ -5,6 +5,7 @@
 #include "sv/dsol/select.h"
 #include "sv/dsol/stereo.h"
 #include "sv/dsol/window.h"
+#include "sv/util/cmap.h"
 
 namespace sv::dsol {
 
@@ -14,7 +15,6 @@ struct OdomCfg {
   bool vis{false};              // show visualization
   int num_kfs{4};               // num kfs in window
   int num_levels{4};            // num pyramid levels
-  int min_track_per_kf{20};     // min track per kf
   double min_track_ratio{0.3};  // min track ratio to add new kf
   double vis_min_depth{4.0};    // min depth in visualization
   bool marg{false};             // enable marginalization
@@ -68,6 +68,8 @@ struct DirectOdometry {
   VignetteModel vign_l;
   VignetteModel vign_r;
 
+  ColorMap cmap;
+
   /// @brief Ctor
   explicit DirectOdometry(const OdomCfg& cfg = {});
   /// @brief Initialize window
@@ -80,17 +82,16 @@ struct DirectOdometry {
     return os << rhs.Repr();
   }
 
-  bool CameraOk() const noexcept { return camera.Ok(); }
   void SetCamera(const Camera& cam) noexcept { camera = cam; }
 
   /// @brief Estimate odometry full version
   OdomStatus Estimate(const cv::Mat& image_l,
                       const cv::Mat& image_r,
-                      const Sophus::SE3d& T_w_cl,
+                      const Sophus::SE3d& dT,
                       const cv::Mat& depth = {});
   TrackStatus Track(const cv::Mat& image_l,
                     const cv::Mat& image_r,
-                    const Sophus::SE3d& T_w_cl);
+                    const Sophus::SE3d& dT);
   MapStatus Map(bool add_kf, const cv::Mat& depth);
 
  private:
@@ -113,13 +114,14 @@ struct DirectOdometry {
   bool ShouldAddKeyframe() const;
   /// @brief Add a new keyframe to window
   void AddKeyframe(const cv::Mat& depth);
-  /// @brief Remove a keyframe from window and perform maginalization
+  /// @brief Remove a keyframe from window
   void RemoveKeyframe();
+  std::pair<int, double> FindKeyframeToRemove() const;
   /// @brief Optimize window
   void BundleAdjust();
 
-  void Summarize(bool new_kf);
-  void DrawFrame(const cv::Mat& depth);
+  void Summarize(bool new_kf) const;
+  void DrawFrame(const cv::Mat& depth) const;
   void DrawKeyframe() const;
 };
 

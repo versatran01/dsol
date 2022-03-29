@@ -9,6 +9,14 @@ cc_library(
   HDRS "grid2d.h"
   DEPS sv_base opencv_core
   INTERFACE)
+cc_test(
+  NAME util_grid2d_test
+  SRCS "grid2d_test.cpp"
+  DEPS sv_util_grid2d benchmark::benchmark)
+cc_bench(
+  NAME util_grid2d_bench
+  SRCS "grid2d_test.cpp"
+  DEPS sv_util_grid2d GTest::GTest)
 
 cc_library(
   NAME util_eigen

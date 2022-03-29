@@ -7,7 +7,6 @@ namespace sv::dsol {
 
 using AlignCfg = DirectCfg;
 using AlignStatus = DirectStatus;
-
 using AlignCostCfg = DirectCostCfg;
 
 /// @brief Cost for align
@@ -36,7 +35,7 @@ struct AlignCost final : public DirectCost {
   JacGeo CalcJacGeo(const FramePoint& point0, int cam_ind) const noexcept;
 
   /// @brief Update Hessian from a single patch
-  /// @return Whether this patch is an inlier
+  /// @return Number of inliers in this patch
   bool UpdateHess(const Patch& patch0,
                   const FramePoint& point0,
                   const Patch& patch1,
@@ -46,7 +45,10 @@ struct AlignCost final : public DirectCost {
 
 /// @brief Direct image alignment wrt keyframes
 class FrameAligner final : public DirectMethod {
+  Frame::Vector10d x_, y_;
+  std::vector<int> num_tracks_{};
   std::vector<DepthPointGrid> points1_vec_{};
+  cv::Mat idepth_{};  // each element is [sum, cnt]
 
  public:
   using DirectMethod::DirectMethod;
@@ -57,35 +59,56 @@ class FrameAligner final : public DirectMethod {
     return os << rhs.Repr();
   }
 
+  const auto& idepths() const noexcept { return idepth_; }
+  const auto& num_tracks() const noexcept { return num_tracks_; }
   const auto& points1_vec() const noexcept { return points1_vec_; }
+
+  void Reset();
 
   /// @brief Align frame to a set of keyframes, updates frame parameters
   /// @return Number of total costs in the level 0 (full res)
   AlignStatus Align(KeyframePtrSpan keyframes,
                     const Camera& camera,
                     Frame& frame,
-                    int gsize = 0);
+                    int gsize);
 
-  AlignStatus AlignImpl(KeyframePtrSpan keyframes,
-                        const Camera& camera,
-                        Frame& frame,
-                        const DirectSolveCfg& solve_cfg,
-                        const DirectCostCfg& cost_cfg,
-                        int gsize = 0);
+  /// @brief A robust version of Align
+  /// @details This will first try to find a level that converges
+  AlignStatus Align2(KeyframePtrSpan keyframes,
+                     const Camera& camera,
+                     Frame& frame,
+                     int gsize);
 
   /// @brief Allocate points1
   size_t Allocate(size_t num_kfs, const cv::Size& grid_size);
 
-  /// @brief
-  cv::Mat CalcCellIdepth(int cell_size) const;
-
  private:
+  /// @brief Align frame for a single level
+  AlignStatus AlignLevel(KeyframePtrSpan keyframes,
+                         const Camera& camera,
+                         Frame& frame,
+                         int level,
+                         int gsize = 0);
+
   /// @brief Build Hessian for a signle level
   FrameHessian1 BuildLevel(KeyframePtrSpan keyframes,
                            const Camera& camera,
                            const Frame& frame,
                            int level,
                            int gsize = 0);
+
+  int PrepPoints(KeyframePtrSpan keyframes, int count);
+  double Solve(const FrameHessian1& hess, int dim, double lambda = 0.0);
+  void UpdateTrackAndIdepth(KeyframePtrSpan keyframes, const Frame& frame);
 };
+
+/// @brief
+int CountIdepths(const cv::Mat& idepths);
+void Proj2Idepth(const DepthPointGrid& points1,
+                 const cv::Size& cell_size,
+                 cv::Mat& idepths);
+void Proj2Mask(const DepthPointGrid& points1,
+               const cv::Size& cell_size,
+               cv::Mat& mask);
 
 }  // namespace sv::dsol

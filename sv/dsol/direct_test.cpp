@@ -28,16 +28,19 @@ TEST(DirectTest, TestTransformScaled) {
   EXPECT_EQ(p4, Eigen::Vector3d(3, 3, 3));
 }
 
-TEST(DirectSolveCfgTest, TestGetNumLevels) {
-  DirectSolveCfg cfg{};
-  cfg.max_levels = 0;
-  EXPECT_EQ(cfg.GetNumLevels(4), 4);
+TEST(DirectSolveCfgTest, TestGetInitLevel) {
+  DirectOptmCfg cfg{};
+  cfg.init_level = 0;
+  EXPECT_EQ(cfg.GetInitLevel(4), 3);
 
-  cfg.max_levels = 2;
-  EXPECT_EQ(cfg.GetNumLevels(4), 2);
+  cfg.init_level = 2;
+  EXPECT_EQ(cfg.GetInitLevel(4), 2);
 
-  cfg.max_levels = 5;
-  EXPECT_EQ(cfg.GetNumLevels(4), 4);
+  cfg.init_level = 5;
+  EXPECT_EQ(cfg.GetInitLevel(4), 3);
+
+  cfg.init_level = -1;
+  EXPECT_EQ(cfg.GetInitLevel(4), 2);
 }
 
 TEST(DirectCostCfgTest, TestGetFrameDim) {

@@ -17,7 +17,7 @@ using Eigen::VectorXd;
 /// ============================================================================
 TEST(FrameHessianTest, TestDefault) {
   FrameHessian h;
-  EXPECT_EQ(h.num(), 0);
+  EXPECT_EQ(h.num_costs(), 0);
   EXPECT_EQ(h.cost(), 0);
   EXPECT_EQ(h.Ok(), false);
 
@@ -26,7 +26,7 @@ TEST(FrameHessianTest, TestDefault) {
   EXPECT_EQ(h.Ok(), true);
 
   h.Reset();
-  EXPECT_EQ(h.num(), 0);
+  EXPECT_EQ(h.num_costs(), 0);
   EXPECT_EQ(h.cost(), 0);
   EXPECT_EQ(h.Ok(), false);
 }
@@ -42,9 +42,8 @@ TEST(FarmeHessian1Test, TestOpPlus) {
   h2.c = 8;
 
   const auto h12 = h1 + h2;
-  EXPECT_EQ(h12.num(), 4);
+  EXPECT_EQ(h12.num_costs(), 4);
   EXPECT_EQ(h12.cost(), 12);
-  EXPECT_EQ(h12.MeanCost(), 3);
 }
 
 /// ============================================================================
@@ -64,9 +63,8 @@ TEST(FrameHessian2Test, TestOpPlus) {
   h2.c = 8;
 
   const auto h12 = h1 + h2;
-  EXPECT_EQ(h12.num(), 4);
+  EXPECT_EQ(h12.num_costs(), 4);
   EXPECT_EQ(h12.cost(), 12);
-  EXPECT_EQ(h12.MeanCost(), 3);
 }
 
 /// ============================================================================
@@ -154,7 +152,7 @@ TEST(FramePointHessianTest, TestReserveFull) {
   EXPECT_EQ(h.num_points(), 0);
   EXPECT_EQ(h.capacity(), 670);
   EXPECT_EQ(h.size(), 0);
-  EXPECT_EQ(h.num(), 0);
+  EXPECT_EQ(h.num_costs(), 0);
 }
 
 TEST(FramePointHessianTest, TestMapFull) {
@@ -167,7 +165,7 @@ TEST(FramePointHessianTest, TestMapFull) {
   EXPECT_EQ(h.dim_frames(), 20);
   EXPECT_EQ(h.dim_points(), 10);
   EXPECT_EQ(h.size(), 670);
-  EXPECT_EQ(h.num(), 0);
+  EXPECT_EQ(h.num_costs(), 0);
 }
 
 TEST(FramePointHessianTest, TestMap) {
@@ -212,12 +210,12 @@ TEST(FramePointHessianTest, TestAddFrameHessian2) {
   FramePointHessian hess(2, 10);
 
   hess.AddFrameHess(h2);
-  EXPECT_EQ(hess.num(), 10);
+  EXPECT_EQ(hess.num_costs(), 10);
   EXPECT_EQ(hess.Hpp(0, 0), 1);
   EXPECT_EQ(hess.Hpp(5, 5), 1);
   EXPECT_EQ(hess.bp(0), 4);
   EXPECT_EQ(hess.bp(5), 4);
-  EXPECT_EQ(hess.num(), h2.num());
+  EXPECT_EQ(hess.num_costs(), h2.num_costs());
   EXPECT_EQ(hess.cost(), h2.cost());
 }
 

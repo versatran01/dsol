@@ -28,6 +28,7 @@ void PatchHessian::AddI(const Vector2d& It, double r, double w) noexcept {
   ItI.noalias() += (It * w) * It.transpose();
   Itr.noalias() += It * wr;
   r2 += r * r;
+  wr2 += r * wr;
 }
 
 void PatchHessian::SetI(const Matrix2Kd& It,
@@ -37,6 +38,7 @@ void PatchHessian::SetI(const Matrix2Kd& It,
   ItI.noalias() = It * w.matrix().asDiagonal() * It.transpose();
   Itr.noalias() = It * wr.matrix();
   r2 = (r * r).sum();
+  wr2 = (wr * r).sum();
 }
 
 /// ============================================================================
@@ -146,46 +148,6 @@ void FrameHessian1::AddPatchHess(const PatchHessian1& ph,
   H.block<da, da>(ia, ia) += ph.AtA;
   // Atr
   b.segment<da>(ia) -= ph.Atr;
-}
-
-bool FrameHessian1::Solve(VectorFd& x, int dim) const {
-  CHECK_GT(dim, 0);
-  CHECK_LE(dim, Dim::kFrame);
-
-  x.setZero();  // always reset solution
-  if (!Ok()) return false;
-
-  // Scaling for better numerical stability
-  // S = 1 / sqrt(|diag(H)| + 10)
-  //  VectorFd s;
-  //  s.head(dim) = (H.diagonal().head(dim).array().abs() +
-  //  10).sqrt().inverse(); const auto Sd = s.head(dim).asDiagonal();
-
-  // Hs = S * H * S
-  // bs = S * b
-  // Hs * xs = bs
-  // x = S * xs
-  //  MatrixFd Hs;
-  //  Hs.topLeftCorner(dim, dim) = Sd * H.topLeftCorner(dim, dim) * Sd;
-
-  //  x.head(dim) =
-  //      Sd *
-  //      Hs.topLeftCorner(dim,
-  //      dim).selfadjointView<Eigen::Lower>().llt().solve(
-  //          Sd * b.head(dim));
-
-  // We only solve the part that's needed, which is determined by sub_dim. For
-  // example, for mono + no affine, we can just solve the top-left 6x6 block
-  // Since we only look at the relevant dimensions, it will always be full rank
-  // and we can use llt instead of ldlt
-  x.head(dim) =
-      H.topLeftCorner(dim, dim).selfadjointView<Eigen::Lower>().llt().solve(
-          b.head(dim));
-
-  // Check if solution is good
-  // https://eigen.tuxfamily.org/dox/classEigen_1_1LDLT.html
-  const VectorFd b_hat = H.selfadjointView<Eigen::Lower>() * x;
-  return b_hat.isApprox(b);
 }
 
 /// ============================================================================
@@ -350,10 +312,15 @@ void SchurFrameHessian::AddPriorHess(const PriorFrameHessian& prior) {
   n += prior.n;
 }
 
-void SchurFrameHessian::Solve(VectorXdRef xp) {
+void SchurFrameHessian::Solve(VectorXdRef xp, VectorXdRef yp) {
   CHECK(Ok());
   CHECK(!empty());
   CHECK_EQ(xp.size(), dim_frames());
+
+  // s is a copy
+  const auto s =
+      (Hpp.diagonal().array().abs() + 10).sqrt().inverse().matrix().eval();
+  const auto S = s.asDiagonal();
 
   // Use inplace decomposition
   // https://eigen.tuxfamily.org/dox/group__InplaceDecomposition.html
@@ -363,10 +330,7 @@ void SchurFrameHessian::Solve(VectorXdRef xp) {
   // ensure stability of the decomposition
   LdltLowerInplace solver(Hpp);
   xp = solver.solve(bp);
-
-  for (int i = 0; i < num_frames(); ++i) {
-    VLOG(4) << i << " xp: " << xp.segment<df>(i * df).transpose();
-  }
+  yp = S.inverse() * xp;
 
   // Inplace decomp modifies storage, so we reset n
   n = 0;
@@ -413,7 +377,7 @@ std::string FramePointHessian::Repr() const {
       num_points(),
       dim_frames(),
       dim_points(),
-      num(),
+      num_costs(),
       cost(),
       size(),
       capacity(),
@@ -421,16 +385,16 @@ std::string FramePointHessian::Repr() const {
 }
 
 auto FramePointHessian::XpAt(int i) const noexcept
-    -> Eigen::Map<const VectorFd> {
+    -> Eigen::Map<const Vector10d> {
   CHECK_GE(i, 0);
   CHECK_LT(i, num_frames());
-  return Eigen::Map<const VectorFd>(xp.data() + i * df);
+  return Eigen::Map<const Vector10d>(xp.data() + i * df);
 }
 
-auto FramePointHessian::XpAt(int i) noexcept -> Eigen::Map<VectorFd> {
+auto FramePointHessian::XpAt(int i) noexcept -> Eigen::Map<Vector10d> {
   CHECK_GE(i, 0);
   CHECK_LT(i, num_frames());
-  return Eigen::Map<VectorFd>(xp.data() + i * df);
+  return Eigen::Map<Vector10d>(xp.data() + i * df);
 }
 
 int FramePointHessian::MapFull(int nframes, int npoints) {
@@ -540,11 +504,8 @@ void FramePointHessian::AddPatchHess(const PatchHessian2& ph,
   Hpm.block<da, dd>(ia1, hid).noalias() += ph.ItA1.transpose() * Gd;
 }
 
-void FramePointHessian::Solve(SchurFrameHessian& schur) {
+void FramePointHessian::Solve() {
   CHECK(ready_);
-
-  schur.Solve(xp);
-  CHECK(!schur.Ok());
 
   // Back-substitute xp to get xm
   xm = Hmm_inv.asDiagonal() * (bm - Hpm.transpose() * xp);
@@ -661,6 +622,7 @@ int MargPointsToFrames(const MatrixXdCRef& Hpp,
           Hpm.bottomRows(r) * (Hmm_inv.asDiagonal() * Hpm.row(i).transpose());
     });
   }
+
   // Make sure Hsc is symmetric
   FillUpperTriangular(Hsc);
 

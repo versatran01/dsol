@@ -5,6 +5,7 @@
 #include <ros/node_handle.h>
 #include <sensor_msgs/CameraInfo.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <visualization_msgs/Marker.h>
 
 #include <sophus/se3.hpp>
 
@@ -29,6 +30,13 @@ void Keyframe2Cloud(const Keyframe& kefyrame,
 void Keyframes2Cloud(const KeyframePtrConstSpan& keyframes,
                      sensor_msgs::PointCloud2& cloud,
                      double max_depth);
+
+void DrawAlignGraph(const Eigen::Vector3d& frame_pos,
+                    const Eigen::Matrix3Xd& kfs_pos,
+                    const std::vector<int>& tracks,
+                    const cv::Scalar& color,
+                    double scale,
+                    visualization_msgs::Marker& marker);
 
 struct PosePathPublisher {
   PosePathPublisher() = default;

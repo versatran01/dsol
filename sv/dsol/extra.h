@@ -22,12 +22,14 @@ struct MotionModel {
   double alpha() const noexcept { return alpha_; }
 
   bool Ok() const noexcept { return init_; }
-  const Sophus::SE3d& Init(const Sophus::SE3d& T_w_c,
-                           const Eigen::Vector3d& vel = {0, 0, 0},
-                           const Eigen::Vector3d& omg = {0, 0, 0});
+  void Init(const Sophus::SE3d& T_w_c,
+            const Eigen::Vector3d& vel = {0, 0, 0},
+            const Eigen::Vector3d& omg = {0, 0, 0});
 
-  Sophus::SE3d Predict(double dt) const {
-    return T_last_ * Sophus::SE3d(Sophus::SO3d::exp(omg_ * dt), vel_ * dt);
+  Sophus::SE3d Predict(double dt) const { return T_last_ * PredictDelta(dt); }
+
+  Sophus::SE3d PredictDelta(double dt) const {
+    return {Sophus::SO3d::exp(omg_ * dt), vel_ * dt};
   }
 
   void Correct(const Sophus::SE3d& T_w_c, double dt);
@@ -61,11 +63,21 @@ class TumFormatWriter {
   void Write(int64_t i, const Sophus::SE3d& pose);
 };
 
+struct PlayCfg {
+  int index{};
+  int nframes{};
+  int skip{};
+  int nlevels{};
+  bool affine{};
+
+  void Check() const;
+  std::string Repr() const;
+};
+
 /// @brief
 struct PlayData {
   PlayData() = default;
-  PlayData(
-      const Dataset& dataset, int index, int nframes, int nlevels, bool affine);
+  PlayData(const Dataset& dataset, const PlayCfg& cfg);
 
   bool empty() const noexcept { return frames.empty(); }
   auto size() const noexcept { return frames.size(); }

@@ -119,15 +119,15 @@ void Run() {
     const auto T_w_c = SE3dFromMat(pose);
     const auto T_c0_c = T_c0_w * T_w_c;
 
-    Sophus::SE3d T_pred;
+    Sophus::SE3d dT_pred;
     if (!motion.Ok()) {
-      T_pred = motion.Init(T_c0_c);
+      motion.Init(T_c0_c);
       LOG(INFO) << "Initialize motion model:\n" << T_c0_c.matrix3x4();
     } else {
-      T_pred = motion.Predict(dt);
+      dT_pred = motion.PredictDelta(dt);
     }
 
-    LOG(INFO) << "trans pred:\t" << T_pred.translation().transpose();
+    LOG(INFO) << "trans pred:\t" << dT_pred.translation().transpose();
     LOG(INFO) << "trans gt:\t" << T_c0_c.translation().transpose();
     //    odom.Process(grays_left, grays_right, depth, T_pred);
 

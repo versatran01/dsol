@@ -5,7 +5,8 @@
 
 namespace sv::dsol {
 
-using geometry_msgs::PoseStamped;
+namespace gm = geometry_msgs;
+namespace vm = visualization_msgs;
 static constexpr auto kNaNF = std::numeric_limits<float>::quiet_NaN();
 
 SelectCfg ReadSelectCfg(const ros::NodeHandle& pnh) {
@@ -24,9 +25,9 @@ SelectCfg ReadSelectCfg(const ros::NodeHandle& pnh) {
 DirectCfg ReadDirectCfg(const ros::NodeHandle& pnh) {
   DirectCfg cfg;
 
-  pnh.getParam("max_iters", cfg.solve.max_iters);
-  pnh.getParam("max_levels", cfg.solve.max_levels);
-  pnh.getParam("rel_change", cfg.solve.rel_change);
+  pnh.getParam("init_level", cfg.optm.init_level);
+  pnh.getParam("max_iters", cfg.optm.max_iters);
+  pnh.getParam("max_xs", cfg.optm.max_xs);
 
   pnh.getParam("affine", cfg.cost.affine);
   pnh.getParam("stereo", cfg.cost.stereo);
@@ -56,7 +57,6 @@ OdomCfg ReadOdomCfg(const ros::NodeHandle& pnh) {
   pnh.getParam("num_kfs", cfg.num_kfs);
   pnh.getParam("num_levels", cfg.num_levels);
   pnh.getParam("min_track_ratio", cfg.min_track_ratio);
-  pnh.getParam("min_track_per_kf", cfg.min_track_per_kf);
   pnh.getParam("vis_min_depth", cfg.vis_min_depth);
 
   pnh.getParam("reinit", cfg.reinit);
@@ -147,14 +147,14 @@ PosePathPublisher::PosePathPublisher(ros::NodeHandle pnh,
                                      const std::string& name,
                                      const std::string& frame_id)
     : frame_id_{frame_id},
-      pose_pub_{pnh.advertise<PoseStamped>("pose_" + name, 1)},
+      pose_pub_{pnh.advertise<gm::PoseStamped>("pose_" + name, 1)},
       path_pub_{pnh.advertise<nav_msgs::Path>("path_" + name, 1)} {
   path_msg_.poses.reserve(1024);
 }
 
-PoseStamped PosePathPublisher::Publish(const ros::Time& time,
-                                       const Sophus::SE3d& tf) {
-  PoseStamped pose_msg;
+gm::PoseStamped PosePathPublisher::Publish(const ros::Time& time,
+                                           const Sophus::SE3d& tf) {
+  gm::PoseStamped pose_msg;
   pose_msg.header.stamp = time;
   pose_msg.header.frame_id = frame_id_;
   Sophus2Ros(tf, pose_msg.pose);
@@ -164,6 +164,44 @@ PoseStamped PosePathPublisher::Publish(const ros::Time& time,
   path_msg_.poses.push_back(pose_msg);
   path_pub_.publish(path_msg_);
   return pose_msg;
+}
+
+void DrawAlignGraph(const Eigen::Vector3d& frame_pos,
+                    const Eigen::Matrix3Xd& kfs_pos,
+                    const std::vector<int>& tracks,
+                    const cv::Scalar& color,
+                    double scale,
+                    vm::Marker& marker) {
+  CHECK_EQ(tracks.size(), kfs_pos.cols());
+  marker.ns = "align";
+  marker.id = 0;
+  marker.type = vm::Marker::LINE_LIST;
+  marker.action = vm::Marker::ADD;
+  marker.color.b = color[0];
+  marker.color.g = color[1];
+  marker.color.r = color[2];
+  marker.color.a = 1.0;
+
+  marker.scale.x = scale;
+  marker.pose.orientation.w = 1.0;
+  const auto num_kfs = tracks.size();
+  marker.points.clear();
+  marker.points.reserve(num_kfs * 2);
+
+  gm::Point p0;
+  p0.x = frame_pos.x();
+  p0.y = frame_pos.y();
+  p0.z = frame_pos.z();
+
+  gm::Point p1;
+  for (int i = 0; i < num_kfs; ++i) {
+    if (tracks[i] <= 0) continue;
+    p1.x = kfs_pos.col(i).x();
+    p1.y = kfs_pos.col(i).y();
+    p1.z = kfs_pos.col(i).z();
+    marker.points.push_back(p0);
+    marker.points.push_back(p1);
+  }
 }
 
 }  // namespace sv::dsol

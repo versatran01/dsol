@@ -1,7 +1,7 @@
 #include "sv/dsol/point.h"
 
-#include "sv/util/logging.h"
 #include "sv/dsol/pixel.h"
+#include "sv/util/logging.h"
 
 namespace sv::dsol {
 
@@ -40,15 +40,6 @@ std::string DepthPoint::Repr() const {
 //}
 
 /// ============================================================================
-void Patch::ExtractAround(const cv::Mat& image,
-                          const cv::Point2d& px) noexcept {
-  for (int k = 0; k < kSize; ++k) {
-    const auto px_k = px + kOffsetPx[k];
-    vals[k] = ValAtD<uchar>(image, px_k);
-    grads[k] = GradAtD<uchar>(image, px_k);
-  }
-}
-
 void Patch::Extract(const cv::Mat& image, const Point2dArray& pxs) noexcept {
   for (int k = 0; k < Patch::kSize; ++k) {
     const auto& px = pxs[k];
@@ -68,6 +59,33 @@ void Patch::ExtractFast(const cv::Mat& image,
   }
 }
 
+void Patch::ExtractAround(const cv::Mat& image,
+                          const cv::Point2d& px) noexcept {
+  for (int k = 0; k < kSize; ++k) {
+    const auto px_k = px + kOffsetPx[k];
+    vals[k] = ValAtD<uchar>(image, px_k);
+    grads[k] = GradAtD<uchar>(image, px_k);
+  }
+}
+
+void Patch::ExtractAround2(const cv::Mat& image,
+                           const cv::Point2d& px) noexcept {
+  for (int k = 0; k < kSize; ++k) {
+    const auto px_k = px + kOffsetPx[k];
+    vals[k] = ValAtD<uchar>(image, px_k);
+    grads[k] = GradAtD2<uchar>(image, px_k);
+  }
+}
+
+void Patch::ExtractAround3(const cv::Mat& image,
+                           const cv::Point2d& px) noexcept {
+  for (int k = 0; k < kSize; ++k) {
+    const auto px_k = px + kOffsetPx[k];
+    vals[k] = ValAtD<uchar>(image, px_k);
+    grads[k] = ScharrAtI<uchar>(image, px_k);
+  }
+}
+
 void Patch::ExtractIntensity(const cv::Mat& image,
                              const Point2dArray& pxs) noexcept {
   for (int k = 0; k < Patch::kSize; ++k) {
@@ -75,9 +93,11 @@ void Patch::ExtractIntensity(const cv::Mat& image,
   }
 }
 
-bool Patch::IsAnyOut(const cv::Mat& mat, const Point2dArray& pxs) noexcept {
+bool Patch::IsAnyOut(const cv::Mat& mat,
+                     const Point2dArray& pxs,
+                     double border) noexcept {
   return std::any_of(std::cbegin(pxs), std::cend(pxs), [&](const auto& px) {
-    return IsPixOut(mat, px, kBorder);
+    return IsPixOut(mat, px, border);
   });
 }
 

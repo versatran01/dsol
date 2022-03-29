@@ -7,13 +7,6 @@
 
 namespace sv::dsol {
 
-Frame::Frame(const ImagePyramid& grays_l,
-             const Sophus::SE3d& tf_w_cl,
-             const AffineModel& affine_l)
-    : grays_l_{grays_l}, state_{tf_w_cl, affine_l} {
-  CHECK(IsImagePyramid(grays_l_));
-}
-
 std::string Frame::Repr() const {
   const auto size = cvsize();
   return fmt::format(
@@ -26,6 +19,13 @@ std::string Frame::Repr() const {
       state_.T_w_cl.translation().transpose(),
       state_.affine_l.ab.transpose(),
       state_.affine_r.ab.transpose());
+}
+
+Frame::Frame(const ImagePyramid& grays_l,
+             const Sophus::SE3d& tf_w_cl,
+             const AffineModel& affine_l)
+    : grays_l_{grays_l}, state_{tf_w_cl, affine_l, {0, 0}} {
+  CHECK(IsImagePyramid(grays_l_));
 }
 
 Frame::Frame(const ImagePyramid& grays_l,
@@ -95,30 +95,13 @@ FrameState Keyframe::GetFirstEstimate() const noexcept {
   return state_ - x_;
 }
 
-FrameState Keyframe::GetEvaluationPoint() const noexcept {
-  // Evaluation point is eta0 + x + delta. For frame without a marginalization
-  // prior, the evaluation poitn is the same as the current state. However,
-  // during bundle adjustment, for state with a marginalization prior, its delta
-  // will be updated with the solution of the linear system, thus chaning the
-  // evaluation point (of the cost function).
-  if (!fixed_) return state_;
-  return state_ + ErrorState{delta_};
-}
-
 void Keyframe::UpdateState(const Vector10dCRef& dx) noexcept {
-  if (fixed_) {
-    // For state with a marginalization prior, we just change delta (not
-    // composing, because it will move the linearization point, thus it will be
-    // different from the linearization point when marginalized).
-    delta_ = dx;
-  } else {
-    // For state without prior, just update directly
-    Frame::UpdateState(dx);
-  }
+  // For state with a marginalization prior, we only update x
+  if (fixed_) x_ += dx;
+  Frame::UpdateState(dx);
 }
 
 void Keyframe::UpdatePoints(const VectorXdCRef& xm, int gsize) noexcept {
-  //  for (int gr = 0; gr < points_.rows(); ++gr) {
   ParallelFor({0, points_.rows(), gsize}, [&](int gr) {
     for (int gc = 0; gc < points_.cols(); ++gc) {
       auto& point = points_.at(gr, gc);
@@ -128,22 +111,6 @@ void Keyframe::UpdatePoints(const VectorXdCRef& xm, int gsize) noexcept {
       point.UpdateIdepth(d_idepth);
     }
   });
-  //  }
-}
-
-void Keyframe::UpdateLinearizationPoint() noexcept {
-  if (fixed_) {
-    // First update linearization point with delta
-    x_ += delta_;
-    // Then update nominal state, this will not change first estimate
-    Frame::UpdateState(delta_);
-    // and reset delta
-    delta_.setZero();
-  } else {
-    // If first estimate is not fixed, we don't need to do anything, just make
-    // sure that delta is zero
-    CHECK_EQ(delta_, Vector10d::Zero()) << delta_.transpose();
-  }
 }
 
 void Keyframe::SetFrame(const Frame& frame) noexcept {
@@ -156,18 +123,8 @@ void Keyframe::SetFrame(const Frame& frame) noexcept {
   }
 }
 
-void Keyframe::Precompute(const PixelGrid& pixels,
-                          const Camera& camera,
-                          int gsize) {
-  CHECK(!empty());
-  Allocate(levels(), pixels.cvsize());
-  status_.pixels = InitPoints(pixels, camera);
-  status_.patches = InitPatches(gsize);
-}
-
 int Keyframe::InitPoints(const PixelGrid& pixels, const Camera& camera) {
-  CHECK_EQ(points_.rows(), pixels.rows());
-  CHECK_EQ(points_.cols(), pixels.cols());
+  Allocate(levels(), pixels.cvsize());
 
   // Reset all points to bad, including their depths
   points_.reset();
@@ -178,7 +135,7 @@ int Keyframe::InitPoints(const PixelGrid& pixels, const Camera& camera) {
       const auto& px = pixels.at(gr, gc);
 
       // If a point is not selected, reset it
-      if (IsPixBad(px)) continue;
+      if (IsPixOut(cvsize(), px, 1)) continue;
 
       // Otherwise we just initialize it with the selected px. At its
       // current stage, it will not be used by either aligner or adjuster,
@@ -190,6 +147,8 @@ int Keyframe::InitPoints(const PixelGrid& pixels, const Camera& camera) {
       ++n_pixels;
     }
   }
+
+  status_.pixels = n_pixels;
   return n_pixels;
 }
 
@@ -207,6 +166,7 @@ int Keyframe::InitPatches(int gsize) {
       },  // level
       std::plus<>{});
 
+  status_.patches = n_patches_total;
   return n_patches_total;
 }
 
@@ -218,8 +178,32 @@ int Keyframe::InitPatchesLevel(int level, int gsize) {
   CHECK_EQ(points_.rows(), patches.rows());
   CHECK_EQ(points_.cols(), patches.cols());
 
-  const auto scale = PyrLevel2Scale(level);
+  if (level == 0) {
+    return ParallelReduce(
+        {0, patches.rows(), gsize},
+        0,
+        [&](int gr, int& n_patches) {
+          for (int gc = 0; gc < patches.cols(); ++gc) {
+            const auto& point = points_.at(gr, gc);
+            auto& patch = patches.at(gr, gc);
+            patch.SetBad();
 
+            // Check if we have a selected pixel at this point
+            if (point.PixelBad()) continue;
+
+            // Make sure we are inside image with border of 1, because
+            // gradient is computed using Scharr operator which is 3x3. We can
+            // safely apply it without checking for bounds.
+            CHECK(IsPixIn(image, point.px(), 1));
+
+            patch.ExtractAround3(image, point.px());
+            ++n_patches;
+          }  // gc
+        },   // gr
+        std::plus<>{});
+  }
+
+  const auto scale = PyrLevel2Scale(level);
   return ParallelReduce(
       {0, patches.rows(), gsize},
       0,
@@ -227,13 +211,13 @@ int Keyframe::InitPatchesLevel(int level, int gsize) {
         for (int gc = 0; gc < patches.cols(); ++gc) {
           const auto& point = points_.at(gr, gc);
           auto& patch = patches.at(gr, gc);
+          patch.SetBad();
 
           // Check if we have a selected pixel at this point
           if (point.PixelBad()) {
             // Here we don't need to modify the patch, because point is
             // already bad, so we won't be using this patch in the first
             // place. But it's safer to invalidate this patch anyway.
-            patch.SetBad();
             continue;
           }
 
@@ -241,14 +225,14 @@ int Keyframe::InitPatchesLevel(int level, int gsize) {
           const auto px_s = ScalePix(point.px(), scale);
 
           // Pixel must be within image, due to the patch size we use a border
-          // of 2. Points very close to image border are usually distorted both
-          // geometrically and photometrically.
-          if (IsPixOut(image, px_s, Patch::kBorder)) {
+          // of 2 (1 for border pixel and 1 for gradient). Points very close to
+          // image border are usually distorted both geometrically and
+          // photometrically.
+          if (IsPixOut(image, px_s, 2)) {
             // Due to scaling, it is possible that a good point will be too
             // close to border in a low res image, thus we cannot safely
             // extract a patch (without checking for bounds). For such cases
             // we will just invalidate this patch.
-            patch.SetBad();
             continue;
           }
 
@@ -262,7 +246,7 @@ int Keyframe::InitPatchesLevel(int level, int gsize) {
 
 int Keyframe::InitFromConst(double depth, double info) {
   CHECK_GT(depth, 0);
-  CHECK(Precomputed());
+  CHECK(Ok());
 
   const auto idepth = 1.0 / depth;
 
@@ -279,7 +263,7 @@ int Keyframe::InitFromConst(double depth, double info) {
 int Keyframe::InitFromDepth(const cv::Mat& depth, double info) {
   if (depth.empty()) return 0;
 
-  CHECK(Precomputed());
+  CHECK(Ok());
   CHECK_EQ(depth.type(), CV_32FC1);
   CHECK_EQ(depth.rows, cvsize().height);
   CHECK_EQ(depth.cols, cvsize().width);
@@ -300,6 +284,7 @@ int Keyframe::InitFromDepth(const cv::Mat& depth, double info) {
     }  // gc
   }    // gr
 
+  status_.depths += n_init;
   return n_init;
 }
 
@@ -308,7 +293,7 @@ int Keyframe::InitFromDisp(const cv::Mat& disp,
                            double info) {
   if (disp.empty()) return 0;
 
-  CHECK(Precomputed());
+  CHECK(Ok());
   CHECK_EQ(disp.type(), CV_16SC1);
   CHECK_EQ(disp.rows, points_.rows());
   CHECK_EQ(disp.cols, points_.cols());
@@ -329,13 +314,14 @@ int Keyframe::InitFromDisp(const cv::Mat& disp,
     }  // gc
   }    // gr
 
+  status_.depths += n_init;
   return n_init;
 }
 
 int Keyframe::InitFromAlign(const cv::Mat& idepth, double info) {
   if (idepth.empty()) return 0;
 
-  CHECK(Precomputed());
+  CHECK(Ok());
   CHECK_EQ(idepth.type(), CV_64FC2);
   CHECK_EQ(idepth.rows, points_.rows());
   CHECK_EQ(idepth.cols, points_.cols());
@@ -349,13 +335,14 @@ int Keyframe::InitFromAlign(const cv::Mat& idepth, double info) {
 
       // Skip empty cell from input
       const auto& cell = idepth.at<cv::Vec2d>(gr, gc);
-      if (cell[1] == 0) continue;
+      if (cell[1] <= 0) continue;
 
       point.SetIdepthInfo(cell[0] / cell[1], info);
       ++n_init;
     }  // gc
   }    // gr
 
+  status_.depths += n_init;
   return n_init;
 }
 
@@ -363,24 +350,17 @@ void Keyframe::Reset() noexcept {
   status_ = {};
   fixed_ = false;
   x_ = {};
-  delta_.setZero();
 }
 
 /// ============================================================================
-std::string KeyframeStatus::FrameStatus() {
-  return fmt::format("FrameStatus(pixels={}, patches={})", pixels, patches);
-}
-
-std::string KeyframeStatus::TrackStatus() {
-  return fmt::format("TrackStatus(outside={}, outlier={}, tracker={})",
-                     outside,
-                     outlier,
-                     tracked);
-}
-
-std::string KeyframeStatus::PointStatus() {
+std::string KeyframeStatus::FrameStatus() const {
   return fmt::format(
-      "PointStatus(info_bad={}, info_uncert={}, info_ok={}, info_max={})",
+      "pixels={:4d}, depths={:4d}, patches={:4d}", pixels, depths, patches);
+}
+
+std::string KeyframeStatus::PointStatus() const {
+  return fmt::format(
+      "info_bad={:3d}, info_uncert={:3d}, info_ok={:3d}, info_max={:3d}",
       info_bad,
       info_uncert,
       info_ok,
@@ -388,19 +368,7 @@ std::string KeyframeStatus::PointStatus() {
 }
 
 std::string KeyframeStatus::Repr() const {
-  return fmt::format(
-      "KeyframeStatus(pixels={}, patches={} | "
-      "outside={}, outlier={}, tracked={} | "
-      "info_bad={}, info_uncert={}, info_ok={}, info_max={})",
-      pixels,
-      patches,
-      outside,
-      outlier,
-      tracked,
-      info_bad,
-      info_uncert,
-      info_ok,
-      info_max);
+  return fmt::format("KeyframeStatus({} | {})", FrameStatus(), PointStatus());
 }
 
 void KeyframeStatus::UpdateInfo(const FramePointGrid& points0) {
@@ -420,24 +388,8 @@ void KeyframeStatus::UpdateInfo(const FramePointGrid& points0) {
       ++info_bad;
     }
   }
+  // Make sure all points add up to the number of pixels
   CHECK_EQ(pixels, info_max + info_ok + info_uncert + info_bad) << Repr();
-}
-
-void KeyframeStatus::UpdateTrack(const DepthPointGrid& points1) {
-  // Reset align related status
-  outside = outlier = tracked = 0;
-
-  for (const auto& point : points1) {
-    if (point.PixelBad()) continue;
-    if (point.InfoOk()) {
-      ++tracked;
-    } else if (point.info() == DepthPoint::kMinInfo) {
-      ++outside;
-    } else {
-      ++outlier;
-    }
-  }
-  CHECK_EQ(info_ok + info_max, tracked + outside + outlier) << Repr();
 }
 
 Keyframe& GetKfAt(KeyframePtrSpan keyframes, int k) {
@@ -462,6 +414,61 @@ std::string FrameState::Repr() const {
                      T_w_cl.translation().transpose(),
                      affine_l.ab.transpose(),
                      affine_r.ab.transpose());
+}
+
+cv::Rect2d GetMinBboxInfoGe(const FramePointGrid& points, double min_info) {
+  static constexpr auto kF64Max = std::numeric_limits<double>::max();
+
+  double min_x = kF64Max;
+  for (int gc = 0; gc < points.cols(); ++gc) {
+    if (min_x < kF64Max) break;
+    for (int gr = 0; gr < points.rows(); ++gr) {
+      const auto& point = points.at(gr, gc);
+      if (point.info() < min_info) continue;
+      CHECK(point.PixelOk());
+      CHECK(point.DepthOk());
+      // Now we try to find the point with smallest y
+      if (point.px().x < min_x) min_x = point.px().x;
+    }
+  }
+
+  double min_y = kF64Max;
+  for (int gr = 0; gr < points.rows(); ++gr) {
+    if (min_y < kF64Max) break;
+    for (int gc = 0; gc < points.cols(); ++gc) {
+      const auto& point = points.at(gr, gc);
+      if (point.info() < min_info) continue;
+      CHECK(point.PixelOk());
+      CHECK(point.DepthOk());
+      if (point.px().y < min_y) min_y = point.px().y;
+    }
+  }
+
+  double max_x = 0;
+  for (int gc = points.cols() - 1; gc >= 0; --gc) {
+    if (max_x > 0) break;
+    for (int gr = 0; gr < points.rows(); ++gr) {
+      const auto& point = points.at(gr, gc);
+      if (point.info() < min_info) continue;
+      CHECK(point.PixelOk());
+      CHECK(point.DepthOk());
+      if (point.px().x > max_x) max_x = point.px().x;
+    }
+  }
+
+  double max_y = 0;
+  for (int gr = points.rows() - 1; gr >= 0; --gr) {
+    if (max_y > 0) break;
+    for (int gc = 0; gc < points.cols(); ++gc) {
+      const auto& point = points.at(gr, gc);
+      if (point.info() < min_info) continue;
+      CHECK(point.PixelOk());
+      CHECK(point.DepthOk());
+      if (point.px().y > max_y) max_y = point.px().y;
+    }
+  }
+
+  return {min_x, min_y, max_x - min_x, max_y - min_y};
 }
 
 }  // namespace sv::dsol

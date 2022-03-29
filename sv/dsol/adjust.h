@@ -44,9 +44,9 @@ struct AdjustCost final : public DirectCost {
 
   /// @brief Warp patch given point into target frame and update Hessian
   /// @return inlier (1), oob (0), outlier (-1)
-  int WarpPatch(const Patch& patch0,
-                const FramePoint& point0,
-                FrameHessian2& hess01) const noexcept;
+  double WarpPatch(const Patch& patch0,
+                   const FramePoint& point0,
+                   FrameHessian2& hess01) const noexcept;
 
   JacGeo CalcJacGeo(const FramePoint& point0,
                     const Eigen::Vector3d& pt1l,
@@ -65,6 +65,7 @@ class BundleAdjuster final : public DirectMethod {
   FramePointHessian block_{};
   SchurFrameHessian schur_{};
   PriorFrameHessian prior_{};
+  std::vector<double> y_{};
 
  public:
   using DirectMethod::DirectMethod;
@@ -84,12 +85,6 @@ class BundleAdjuster final : public DirectMethod {
                       const Camera& camera,
                       int gsize = 0);
 
-  AdjustStatus AdjustImpl(KeyframePtrSpan keyframes,
-                          const Camera& camera,
-                          const DirectSolveCfg& solve_cfg,
-                          const DirectCostCfg& cost_cfg,
-                          int gsize = 0);
-
   /// @brief Marginalize frame
   /// @return Number of points marginalized
   void Marginalize(KeyframePtrSpan keyframes,
@@ -104,6 +99,11 @@ class BundleAdjuster final : public DirectMethod {
   void ResetPrior() { prior_.ResetData(); }
 
  private:
+  AdjustStatus AdjustLevel(KeyframePtrSpan keyframes,
+                           const Camera& camera,
+                           int level,
+                           int gsize = 0);
+
   /// @brief Build Hessian for a single level
   void BuildLevel(KeyframePtrSpan keyframes,
                   const Camera& camera,
@@ -119,8 +119,11 @@ class BundleAdjuster final : public DirectMethod {
                     std::mutex& mtx,
                     int gsize = 0);
 
-  void Solve(bool fix_scale, int gsize = 0);
+  double Solve(bool fix_scale, int gsize = 0);
   void Update(KeyframePtrSpan keyframes, int gsize = 0);
+
+  /// @brief Prepare points, only consider point with info >= min_info
+  int PointsInfoGe(KeyframePtrSpan keyframes, double min_info);
 };
 
 }  // namespace sv::dsol

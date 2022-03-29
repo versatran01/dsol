@@ -4,24 +4,29 @@
 
 namespace sv::dsol {
 
-void DirectSolveCfg::Check() const {
+namespace {
+constexpr auto color_ok = LogColor::kBrightGreen;
+constexpr auto color_bad = LogColor::kBrightRed;
+}  // namespace
+
+void DirectOptmCfg::Check() const {
+  CHECK_GE(init_level, -2);
   CHECK_GT(max_iters, 0);
-  CHECK_GE(max_levels, 0);
-  CHECK_GE(rel_change, 0);
+  CHECK_GE(max_xs, 0);
 }
 
-std::string DirectSolveCfg::Repr() const {
-  return fmt::format(
-      "DirectSolveCfg(max_iters={}, max_levels={}, rel_change={})",
-      max_iters,
-      max_levels,
-      rel_change);
+std::string DirectOptmCfg::Repr() const {
+  return fmt::format("DirectOptmCfg(init_level={}, max_iters={}, max_xs={})",
+                     init_level,
+                     max_iters,
+                     max_xs);
 }
 
 void DirectCostCfg::Check() const {
   CHECK_GT(c2, 0);
   CHECK_GT(dof, 0);
   CHECK_GE(max_outliers, 0);
+  CHECK_LT(max_outliers, 3);
   CHECK_GE(grad_factor, 1.0);
   CHECK_GT(min_depth, 0);
 }
@@ -40,26 +45,27 @@ std::string DirectCostCfg::Repr() const {
 }
 
 void DirectCfg::Check() const {
-  solve.Check();
+  optm.Check();
   cost.Check();
 }
 
 std::string DirectCfg::Repr() const {
-  return fmt::format("DirectCfg({}, {})", solve.Repr(), cost.Repr());
+  return fmt::format("{}, {}", optm.Repr(), cost.Repr());
 }
 
 /// ============================================================================
 std::string DirectStatus::Repr() const {
   return fmt::format(
-      "DirectStatus(num_kfs={}, num_points={}, num_levels={}, num_iters={}/{}, "
-      "num_costs={}, last_cost={:.4e})",
+      "DirectStatus(num_kfs={}, num_points={}, num_levels={}, "
+      "num_iters={}/{}, num_costs={}, cost={:.2e}, converged={})",
       num_kfs,
       num_points,
       num_levels,
+      good_iters,
       num_iters,
-      max_iters,
       num_costs,
-      last_cost);
+      cost,
+      converged);
 }
 
 /// ============================================================================
@@ -103,78 +109,42 @@ void DirectCost::ExtractState(const FrameState& state0,
 }
 
 /// ============================================================================
-bool DirectMethod::OnIterEnd(DirectStatus& status,
-                             int level,
-                             int iter,
-                             int num,
-                             double cost,
-                             double dx2) const noexcept {
-  const auto prev_mean_cost = status.last_cost / status.num_costs;
-  const auto curr_mean_cost = cost / num;
-  const auto rel_change = (curr_mean_cost - prev_mean_cost) / prev_mean_cost;
-  const auto rel_change_max = cfg_.solve.rel_change * (level / 2.0 + 1);
-  const auto rel_ok = std::abs(rel_change) < rel_change_max;
-  const auto dx_ok = dx2 < status.last_dx2;
-
-  const auto early_stop = rel_ok && dx_ok;
-
-  ++status.num_iters;
-  status.num_costs = num;
-  status.last_cost = cost;
-  status.last_dx2 = dx2;
-
-  VLOG(2) << fmt::format(
-      "-- [L {} I {}]: dx2={:.4e}, cost={:.4e}, num={}, mean={:.4f}, "
-      "rel={:+.4f}/{:.4f}, stop={}",
-      level,
-      iter,
-      dx2,
-      cost,
-      num,
-      curr_mean_cost,
-      rel_change,
-      rel_change_max,
-      early_stop);
-
-  return early_stop;
+std::string DirectMethod::LogIter(const std::pair<int, int>& level,
+                                  const std::pair<int, int>& iter,
+                                  const std::pair<int, double>& num_cost,
+                                  const std::pair<double, double>& xs,
+                                  double x2) {
+  return fmt::format(
+      "-- [L {}/{} I {}/{}]: num={}, cost={:.2e}, xs={:.3f}/{:.3f}, "
+      "x2={:.2e}",
+      level.first,
+      level.second,
+      iter.first,
+      iter.second,
+      num_cost.first,
+      num_cost.second,
+      xs.first,
+      xs.second,
+      x2);
 }
 
-int DirectMethod::PointsInfoGe(KeyframePtrSpan keyframes, double min_info) {
-  const auto num_kfs = static_cast<int>(keyframes.size());
-  pranges_.resize(num_kfs);
+std::string DirectMethod::LogIter(const std::pair<int, int>& level,
+                                  const std::pair<int, int>& iter,
+                                  const std::pair<int, double>& num_cost) {
+  return fmt::format("-- [L {}/{} I {}/{}]: num={}, cost={:.2e}",
+                     level.first,
+                     level.second,
+                     iter.first,
+                     iter.second,
+                     num_cost.first,
+                     num_cost.second);
+}
 
-  int hid = 0;
-  // Assign a hessian index to each good point
-  for (int k = 0; k < num_kfs; ++k) {
-    auto& kf = GetKfAt(keyframes, k);
-
-    // We need to remember the start and end hid of each frame
-    auto& hrg = pranges_.at(k);
-    hrg.start = hid;
-
-    // hid determines whether a point will be used in this round of adjustment
-    // we will update point.info during the process, but hid remains the same,
-    // so even if info goes < 0, as long as hid is valid, this point will still
-    // participate in this round of bundle adjustment
-    for (auto& point : kf.points()) {
-      if (point.info() >= min_info) {
-        CHECK(point.PixelOk());
-        CHECK(point.DepthOk());
-        point.hid = hid++;
-      } else {
-        point.hid = FramePoint::kBadHid;
-      }
-    }
-    hrg.end = hid;
-    VLOG(1) << fmt::format("-- kf {} has {} points, [{:>4}, {:>4})",
-                           k,
-                           hrg.size(),
-                           hrg.start,
-                           hrg.end);
-  }  // k
-
-  CHECK_GT(hid, 0);
-  return hid;
+std::string DirectMethod::LogConverge(int level, const DirectStatus& status) {
+  if (status.converged) {
+    return fmt::format(color_ok, "=== Level {} converged {}", level, status);
+  }
+  return fmt::format(color_bad, "=== Level {} diverged {}", level, status);
 }
 
 }  // namespace sv::dsol

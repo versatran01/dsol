@@ -1,7 +1,7 @@
 cc_library(
   NAME dsol_pixel
   HDRS "pixel.h"
-  DEPS sv_base opencv_core Eigen3::Eigen
+  DEPS sv_base sv_util_log opencv_core Eigen3::Eigen
   INTERFACE)
 cc_test(
   NAME dsol_pixel_test
@@ -115,6 +115,15 @@ cc_bench(
   DEPS sv_dsol_hessian GTest::GTest)
 
 cc_library(
+  NAME dsol_solve
+  SRCS "solve.cpp"
+  DEPS sv_util_eigen)
+cc_test(
+  NAME dsol_solve_test
+  SRCS "solve_test.cpp"
+  DEPS sv_dsol_solve)
+
+cc_library(
   NAME dsol_direct
   SRCS "direct.cpp"
   DEPS sv_dsol_camera sv_dsol_frame)
@@ -130,7 +139,7 @@ cc_bench(
 cc_library(
   NAME dsol_align
   SRCS "align.cpp"
-  DEPS sv_dsol_hessian sv_dsol_direct
+  DEPS sv_dsol_hessian sv_dsol_direct sv_dsol_solve
   LINKOPTS sv_util_tbb)
 cc_bench(
   NAME dsol_align_bench

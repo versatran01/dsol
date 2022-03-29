@@ -1,7 +1,7 @@
 #include "sv/dsol/viz.h"
 
-#include "sv/util/logging.h"
 #include "sv/dsol/pixel.h"
+#include "sv/util/logging.h"
 #include "sv/util/ocv.h"
 
 namespace sv::dsol {
@@ -82,9 +82,10 @@ void DrawDepthPoint(cv::Mat& mat,
 
   cv::Scalar bgr;
   Eigen::Map<Eigen::Vector3d> bgr_map(&bgr[0]);
-  // good is filled, otherwise is hollow
   const double x = idepth_range.Normalize(point.idepth());
   bgr_map = cmap.GetBgr(x) * 255;
+
+  // info ok is solid, otherwise hollow
   const int thickness = point.InfoOk() ? -1 : 1;
   DrawRectangle(mat, pxi, {dilate, dilate}, bgr, thickness);
 }
@@ -111,6 +112,17 @@ void DrawFramePoints(cv::Mat mat,
   }
 }
 
+void DrawSelectedPoints(cv::Mat mat,
+                        const FramePointGrid& points,
+                        const cv::Scalar& color,
+                        int dilate) {
+  CHECK_EQ(mat.type(), CV_8UC3);
+  for (const auto& point : points) {
+    if (point.PixelBad()) continue;
+    DrawRectangle(mat, point.px(), {dilate, dilate}, color, -1);
+  }
+}
+
 void DrawRectangle(cv::Mat& mat,
                    const cv::Point& center,
                    const cv::Point& half_size,
@@ -129,7 +141,6 @@ void DrawSelectedPixels(cv::Mat mat,
   for (const auto& px : pixels) {
     if (IsPixBad(px)) continue;
     DrawRectangle(mat, px, {dilate, dilate}, color, -1);
-    //    cv::circle(mat, px, dilate, color, 1);
   }
 }
 
@@ -165,6 +176,16 @@ void Gray2Bgr(const std::vector<cv::Mat>& grays, std::vector<cv::Mat>& bgrs) {
     const auto& gray = grays.at(i);
     CHECK_EQ(gray.type(), CV_8UC1);
     cv::cvtColor(grays[i], bgrs[i], cv::COLOR_GRAY2BGR);
+  }
+}
+
+void DrawProjBboxes(cv::Mat mat,
+                    const std::array<cv::Point2d, 4>& polys,
+                    const cv::Scalar& color,
+                    int thickness) {
+  for (int i = 0; i < polys.size(); ++i) {
+    cv::line(
+        mat, polys.at(i), polys.at((i + 1) % 4), color, thickness, cv::LINE_8);
   }
 }
 

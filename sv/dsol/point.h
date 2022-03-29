@@ -68,7 +68,7 @@ struct FramePoint final : public DepthPoint {
   using Matrix26d = Eigen::Matrix<double, 2, 6>;
   static constexpr int kBadHid = -1;
 
-  int hid{kBadHid};          // hessian id used in PBA, also used in align
+  mutable int hid{kBadHid};  // hessian id used in PBA, also used in align
   Eigen::Vector2d nc{0, 0};  // normalized coordinate
 
   /// @brief get 3d point, assumes idepth is not 0, otherwise UB
@@ -77,7 +77,7 @@ struct FramePoint final : public DepthPoint {
   Eigen::Vector3d nh() const noexcept { return {nc.x(), nc.y(), 1.0}; }
 
   void SetNc(const Eigen::Vector3d& nh) noexcept { nc = nh.head<2>(); }
-  bool HidBad() const noexcept { return hid == kBadHid; }
+  bool HidBad() const noexcept { return hid < 0; }
 };
 
 /// @brief Patch with 4 extra pixels around center
@@ -122,10 +122,14 @@ struct Patch {
   void Extract(const cv::Mat& image, const Point2dArray& pxs) noexcept;
   void ExtractFast(const cv::Mat& image, const Point2dArray& pxs) noexcept;
   void ExtractAround(const cv::Mat& image, const cv::Point2d& px) noexcept;
+  void ExtractAround2(const cv::Mat& image, const cv::Point2d& px) noexcept;
+  void ExtractAround3(const cv::Mat& image, const cv::Point2d& px) noexcept;
   void ExtractIntensity(const cv::Mat& image, const Point2dArray& pxs) noexcept;
 
   /// @brief If any px is OOB
-  static bool IsAnyOut(const cv::Mat& mat, const Point2dArray& pxs) noexcept;
+  static bool IsAnyOut(const cv::Mat& mat,
+                       const Point2dArray& pxs,
+                       double border) noexcept;
 };
 
 using PatchGrid = Grid2d<Patch>;

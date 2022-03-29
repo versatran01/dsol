@@ -314,4 +314,14 @@ ColorMap MakeCmapPlasma() {
            {0.941896, 0.968590, 0.140956}, {0.940015, 0.975158, 0.131326}}};
 }
 
+ColorMap GetColorMap(std::string_view name) {
+  if (name == "jet") return MakeCmapJet();
+  if (name == "heat") return MakeCmapHeat();
+  if (name == "turbo") return MakeCmapTurbo();
+  if (name == "plasma") return MakeCmapPlasma();
+
+  // Default is jet
+  return MakeCmapJet();
+}
+
 }  // namespace sv

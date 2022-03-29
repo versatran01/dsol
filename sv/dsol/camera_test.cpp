@@ -183,7 +183,7 @@ BENCHMARK(BM_PnormHomogenize);
 void BM_VignetteUpdate(bm::State& state) {
   VignetteModel vm({640, 640}, {320, 320}, {1, 1, 1});
 
-  const auto gsize = state.range(0);
+  const int gsize = static_cast<int>(state.range(0));
   for (auto _ : state) {
     vm.UpdateMap(gsize);
     bm::DoNotOptimize(vm.map_);

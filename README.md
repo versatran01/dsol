@@ -48,6 +48,6 @@ See CMakeLists.txt for dependencies.
 
 ## Disclaimer
 
-This is the open-source version, advanced features are not included.
-Also this is the code that we used to generate results in the paper. It contains bugs that are thus fixed in the latest version. However, we upload the code as is for reproducibility. We will update the main branch with all the fixes soon.
+For reproducing the results in the paper, place use the `iros22` branch.
 
+This is the open-source version, advanced features are not included.

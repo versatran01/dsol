@@ -16,7 +16,7 @@ cv::Mat MakeRandMat8U(int rows, int cols) {
 bool IsImagePyramid(const ImagePyramid& images) {
   if (images.empty()) return false;
 
-  for (int i = 1; i < images.size(); ++i) {
+  for (size_t i = 1; i < images.size(); ++i) {
     const auto& below = images[i - 1];
     const auto& above = images[i];
     // Check that above should be half of below
@@ -77,7 +77,7 @@ cv::Mat CropImageFactor(const cv::Mat& image, int factor) {
 bool IsStereoPair(const ImagePyramid& images0, const ImagePyramid& images1) {
   if (images0.size() != images1.size()) return false;
 
-  for (int i = 0; i < images0.size(); ++i) {
+  for (size_t i = 0; i < images0.size(); ++i) {
     const auto& im0 = images0.at(i);
     const auto& im1 = images1.at(i);
     if (im0.rows != im1.rows || im0.cols != im1.cols) {

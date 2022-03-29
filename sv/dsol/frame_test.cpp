@@ -12,6 +12,27 @@ constexpr int kImageSize = 640;
 constexpr int kCellSize = 16;
 constexpr int kNumLevels = 4;
 
+TEST(FrameUtilTest, TestGetBbox) {
+  //
+  FramePointGrid points(4, 6);
+  points.at(1, 3).SetPix({48.0, 18.0});
+  points.at(1, 3).SetIdepthInfo(1.0, 5.0);
+  points.at(2, 0).SetPix({8.0, 34.0});
+  points.at(2, 0).SetIdepthInfo(1.0, 5.0);
+  points.at(2, 1).SetPix({20.0, 36.0});
+  points.at(2, 1).SetIdepthInfo(1.0, 5.0);
+  points.at(2, 4).SetPix({50.0, 40.0});
+  points.at(2, 4).SetIdepthInfo(1.0, 5.0);
+  points.at(3, 3).SetPix({35.0, 56.0});
+  points.at(3, 3).SetIdepthInfo(1.0, 5.0);
+
+  const auto rect = GetMinBboxInfoGe(points, 5.0);
+  EXPECT_EQ(rect.x, 8.0);
+  EXPECT_EQ(rect.y, 18.0);
+  EXPECT_EQ(rect.x + rect.width, 50.0);
+  EXPECT_EQ(rect.y + rect.height, 56.0);
+}
+
 class FrameTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -55,8 +76,8 @@ TEST_F(FrameTest, TestSetFrameStereo) {
 }
 
 TEST_F(FrameTest, TestKeyframeStatus) {
+  //
   EXPECT_TRUE(!keyframe.Ok());
-  EXPECT_TRUE(!keyframe.Precomputed());
 }
 
 TEST(KeyframeTest, TestFixed) {
@@ -80,17 +101,12 @@ TEST(KeyframeTest, TestFixed) {
   kf.UpdateState(dx);
   st = kf.GetFirstEstimate();
   EXPECT_EQ(st.T_w_cl.translation(), Vector3d::Ones());
-  EXPECT_EQ(kf.Twc().translation(), Vector3d::Constant(1));
+  EXPECT_EQ(kf.Twc().translation(), Vector3d::Constant(2));
 
   kf.UpdateState(dx);
   st = kf.GetFirstEstimate();
   EXPECT_EQ(st.T_w_cl.translation(), Vector3d::Ones());
-  EXPECT_EQ(kf.Twc().translation(), Vector3d::Constant(1));
-
-  kf.UpdateLinearizationPoint();
-  st = kf.GetFirstEstimate();
-  EXPECT_EQ(st.T_w_cl.translation(), Vector3d::Ones());
-  EXPECT_EQ(kf.Twc().translation(), Vector3d::Constant(2));
+  EXPECT_EQ(kf.Twc().translation(), Vector3d::Constant(3));
 
   kf.Reset();
   EXPECT_EQ(kf.is_fixed(), false);
@@ -156,18 +172,6 @@ void BM_KeyframeInitPatches(bm::State& state) {
   }
 }
 BENCHMARK(BM_KeyframeInitPatches)->Arg(0)->Arg(1);
-
-void BM_KeyframeInitFromDepths(bm::State& state) {
-  KeyframeBench b;
-  b.SetUp();
-  b.keyframe.Precompute(b.pixels, b.camera);
-
-  for (auto _ : state) {
-    const auto n = b.keyframe.InitFromDepth(b.depth);
-    bm::DoNotOptimize(n);
-  }
-}
-BENCHMARK(BM_KeyframeInitFromDepths);
 
 }  // namespace
 }  // namespace sv::dsol

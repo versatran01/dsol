@@ -9,7 +9,7 @@ std::string CvTypeStr(int type) noexcept {
   std::string r;
 
   const uchar depth = type & CV_MAT_DEPTH_MASK;
-  const uchar chans = static_cast<uchar>(1 + (type >> CV_CN_SHIFT));
+  const auto chans = static_cast<uchar>(1 + (type >> CV_CN_SHIFT));
 
   switch (depth) {
     case CV_8U:
@@ -38,10 +38,7 @@ std::string CvTypeStr(int type) noexcept {
       break;
   }
 
-  r += "C";
-  r += (chans + '0');
-
-  return r;
+  return fmt::format("{}C{}", r, chans);
 }
 
 std::string Repr(const cv::Mat& mat) {
@@ -122,6 +119,9 @@ KeyControl::KeyControl(int wait_ms, const cv::Size& size)
   }
 
   if (wait_ms_ > 0) {
+    LOG(INFO)
+        << "Press 's' to step, 'r' to play, 'p' to pause, 'space' to toggle "
+           "play/pause, 'esc' to quit";
     cv::namedWindow(name_);
     cv::imshow(name_, display_);
     cv::moveWindow(name_, 0, 0);

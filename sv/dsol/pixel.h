@@ -1,9 +1,60 @@
 #pragma once
 
+#include <fmt/color.h>
+#include <glog/logging.h>
+
 #include <Eigen/Core>
 #include <opencv2/core/mat.hpp>
 
 namespace sv::dsol {
+
+static constexpr double kHalfPix = 0.5;
+
+/// @brief Scale pixel, assume center of top left corner is (0, 0)
+inline cv::Point2d ScalePix(const cv::Point2d& px, double scale) noexcept {
+  return {scale * (px.x + kHalfPix) - kHalfPix,
+          scale * (px.y + kHalfPix) - kHalfPix};
+}
+
+/// @brief Check if pixel is outside of size by border
+inline bool IsPixOut(const cv::Size& size,
+                     const cv::Point2d& px,
+                     const cv::Point2d& border) noexcept {
+  return (px.x < border.x) || (px.y < border.y) ||
+         (px.x > (size.width - border.x - 1)) ||
+         (px.y > (size.height - border.y - 1));
+}
+
+inline bool IsPixOut(const cv::Size& size,
+                     const cv::Point2d& px,
+                     double border = 0) noexcept {
+  return IsPixOut(size, px, {border, border});
+}
+
+inline bool IsPixOut(const cv::Mat& mat,
+                     const cv::Point2d& px,
+                     double border = 0) noexcept {
+  return IsPixOut({mat.cols, mat.rows}, px, {border, border});
+}
+
+inline bool IsPixOut(const cv::Mat& mat,
+                     const cv::Point2d& px,
+                     const cv::Point2d& border) noexcept {
+  return IsPixOut({mat.cols, mat.rows}, px, border);
+}
+
+/// @brief Check if pixel is inside of size by border
+inline bool IsPixIn(const cv::Size& size,
+                    const cv::Point2d& px,
+                    double border = 0) noexcept {
+  return !IsPixOut(size, px, border);
+}
+
+inline bool IsPixIn(const cv::Mat& mat,
+                    const cv::Point2d& px,
+                    double border = 0) noexcept {
+  return IsPixIn({mat.cols, mat.rows}, px, border);
+}
 
 /// @brief Intensity accessor at integer pixel location
 template <typename T>
@@ -19,6 +70,22 @@ double ValAtD(const cv::Mat& mat, const cv::Point2d& px) noexcept {
   const int x1i = static_cast<int>(std::ceil(px.x));
   const int y0i = static_cast<int>(std::floor(px.y));
   const int y1i = static_cast<int>(std::ceil(px.y));
+  CHECK(x0i >= 0 && y0i >= 0 && x0i < mat.cols && y0i < mat.rows)
+      << fmt::format("floor px {} {}->{} {}, wh {} {}",
+                     px.x,
+                     px.y,
+                     x0i,
+                     y0i,
+                     mat.cols,
+                     mat.rows);
+  CHECK(x1i >= 0 && y1i >= 0 && x1i < mat.cols && y1i < mat.rows)
+      << fmt::format("ceil px {} {}->{} {}, wh {} {}",
+                     px.x,
+                     px.y,
+                     x1i,
+                     y1i,
+                     mat.cols,
+                     mat.rows);
 
   const double f00 = mat.at<T>(y0i, x0i);
   const double f10 = mat.at<T>(y0i, x1i);
@@ -73,6 +140,29 @@ cv::Point2d GradAtD(const cv::Mat& mat, const cv::Point2d& px) noexcept {
   return {GradXAtD<T>(mat, px), GradYAtD<T>(mat, px)};
 }
 
+template <typename T>
+double GradXAtD2(const cv::Mat& mat, const cv::Point2d& px) noexcept {
+  const double l2 = ValAtD<T>(mat, {px.x - 2, px.y});
+  const double l1 = ValAtD<T>(mat, {px.x - 1, px.y});
+  const double r1 = ValAtD<T>(mat, {px.x + 1, px.y});
+  const double r2 = ValAtD<T>(mat, {px.x + 2, px.y});
+  return (r2 + 3 * r1 - 3 * l1 - l2) / 8.0;
+}
+
+template <typename T>
+double GradYAtD2(const cv::Mat& mat, const cv::Point2d& px) noexcept {
+  const double u2 = ValAtD<T>(mat, {px.x, px.y - 2});
+  const double u1 = ValAtD<T>(mat, {px.x, px.y - 1});
+  const double d1 = ValAtD<T>(mat, {px.x, px.y + 1});
+  const double d2 = ValAtD<T>(mat, {px.x, px.y + 2});
+  return (d2 + 3 * d1 - 3 * u1 - u2) / 8.0;
+}
+
+template <typename T>
+cv::Point2d GradAtD2(const cv::Mat& mat, const cv::Point2d& px) noexcept {
+  return {GradXAtD2<T>(mat, px), GradYAtD2<T>(mat, px)};
+}
+
 /// @brief Gradient accessor, Sobel
 template <typename T>
 double SobelXAtI(const cv::Mat& mat, const cv::Point& px) noexcept {
@@ -99,6 +189,34 @@ double SobelYAtI(const cv::Mat& mat, const cv::Point& px) noexcept {
 template <typename T>
 cv::Point2d SobelAtI(const cv::Mat& mat, const cv::Point& px) noexcept {
   return {SobelXAtI<T>(mat, px), SobelYAtI<T>(mat, px)};
+}
+
+/// @brief Gradient accessor, Sobel
+template <typename T>
+double ScharrXAtI(const cv::Mat& mat, const cv::Point& px) noexcept {
+  const double l0 = mat.at<T>(px.y - 1, px.x - 1);
+  const double r0 = mat.at<T>(px.y - 1, px.x + 1);
+  const double l1 = mat.at<T>(px.y, px.x - 1);
+  const double r1 = mat.at<T>(px.y, px.x + 1);
+  const double l2 = mat.at<T>(px.y + 1, px.x - 1);
+  const double r2 = mat.at<T>(px.y + 1, px.x + 1);
+  return (3 * r0 + 10 * r1 + 3 * r2 - 3 * l0 - 10 * l1 - 3 * l2) / 32.0;
+}
+
+template <typename T>
+double ScharrYAtI(const cv::Mat& mat, const cv::Point& px) noexcept {
+  const double u0 = mat.at<T>(px.y - 1, px.x - 1);
+  const double u1 = mat.at<T>(px.y - 1, px.x);
+  const double u2 = mat.at<T>(px.y - 1, px.x + 1);
+  const double d0 = mat.at<T>(px.y + 1, px.x - 1);
+  const double d1 = mat.at<T>(px.y + 1, px.x);
+  const double d2 = mat.at<T>(px.y + 1, px.x + 1);
+  return (3 * d0 + 10 * d1 + 3 * d2 - 3 * u0 - 10 * u1 - 3 * u2) / 32.0;
+}
+
+template <typename T>
+cv::Point2d ScharrAtI(const cv::Mat& mat, const cv::Point& px) noexcept {
+  return {ScharrXAtI<T>(mat, px), ScharrYAtI<T>(mat, px)};
 }
 
 /// @brief Intensity and Gradient accessor, xy stores image gradient, z stores
@@ -129,58 +247,6 @@ cv::Point3d GradValAtD(const cv::Mat& mat, const cv::Point2d& px) noexcept {
   out.y = (f01 - f00) * x1 + (f11 - f10) * x0;
   out.z = f00 * x1 * y1 + f10 * x0 * y1 + f01 * x1 * y0 + f11 * x0 * y0;
   return out;
-}
-
-/// @brief Check if pixel is outside of size by border
-template <typename T>
-bool IsPixOut(const cv::Size& size,
-              const cv::Point_<T>& px,
-              int border = 0) noexcept {
-  return (px.x < border) || (px.y < border) ||
-         (px.x >= (size.width - border)) || (px.y >= (size.height - border));
-}
-
-template <typename T>
-bool IsPixOut(const cv::Size& size,
-              const cv::Point_<T>& px,
-              const cv::Point& border) noexcept {
-  return (px.x < border.x) || (px.y < border.y) ||
-         (px.x >= (size.width - border.x)) ||
-         (px.y >= (size.height - border.y));
-}
-
-template <typename T>
-bool IsPixOut(const cv::Mat& mat,
-              const cv::Point_<T>& px,
-              int border = 0) noexcept {
-  return IsPixOut({mat.cols, mat.rows}, px, border);
-}
-
-template <typename T>
-bool IsPixOut(const cv::Mat& mat,
-              const cv::Point_<T>& px,
-              const cv::Point& border) noexcept {
-  return IsPixOut({mat.cols, mat.rows}, px, border);
-}
-
-/// @brief Check if pixel is inside of size by border
-template <typename T>
-bool IsPixIn(const cv::Size& size,
-             const cv::Point_<T>& px,
-             int border = 0) noexcept {
-  return !IsPixOut(size, px, border);
-}
-
-template <typename T>
-bool IsPixIn(const cv::Mat& mat,
-             const cv::Point_<T>& px,
-             int border = 0) noexcept {
-  return !IsPixOut({mat.cols, mat.rows}, px, border);
-}
-
-/// @brief Scale pixel, assume center of top left corner is (0, 0)
-inline cv::Point2d ScalePix(const cv::Point2d& px, double scale) noexcept {
-  return {scale * (px.x + 0.5) - 0.5, scale * (px.y + 0.5) - 0.5};
 }
 
 /// @brief Round pixel from double to int

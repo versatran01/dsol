@@ -60,6 +60,15 @@ void DrawFramePoints(cv::Mat mat,
                      const ColorMap& cmap,
                      const IntervalD& idepth_range,
                      int dilate = 1);
+void DrawSelectedPoints(cv::Mat mat,
+                        const FramePointGrid& points,
+                        const cv::Scalar& color,
+                        int dilate = 1);
+
+void DrawProjBboxes(cv::Mat mat,
+                    const std::array<cv::Point2d, 4>& polys,
+                    const cv::Scalar& color,
+                    int thickness = 1);
 
 /// @brief Draw selected pixels as small squares
 void DrawSelectedPixels(cv::Mat mat,

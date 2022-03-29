@@ -14,7 +14,8 @@ ABSL_FLAG(bool, vis, true, "visualization");
 ABSL_FLAG(int32_t, index, 0, "dataset index");
 ABSL_FLAG(std::string,
           dir,
-          "/home/chao/Workspace/dataset/vkitti/Scene01/clone",
+          // "/home/chao/Workspace/dataset/vkitti/Scene01/clone",
+          "/home/chao/Workspace/dataset/tartan_air/office/Easy/P001",
           "dataset dir");
 
 ABSL_FLAG(int32_t, cell_size, 16, "cell size");
@@ -27,21 +28,26 @@ ABSL_FLAG(bool, reselect, true, "reselect if ratio too low");
 
 ABSL_FLAG(bool, affine, false, "optimize affine");
 ABSL_FLAG(bool, stereo, false, "optimize stereo");
-ABSL_FLAG(int32_t, c2, 4, "gradient weight");
+ABSL_FLAG(int32_t, c2, 3, "gradient weight");
 ABSL_FLAG(int32_t, dof, 4, "student t dof");
-ABSL_FLAG(int32_t, max_outliers, 0, "max outliers allowed");
-ABSL_FLAG(double, grad_factor, 1.0, "grad factor");
+ABSL_FLAG(int32_t, max_outliers, 1, "max outliers allowed");
+ABSL_FLAG(double, grad_factor, 1.5, "grad factor");
 
-ABSL_FLAG(int32_t, max_iters, 5, "num iters each level");
-ABSL_FLAG(int32_t, max_levels, 0, "num levels to optimize");
-ABSL_FLAG(double, rel_change, 0.01, "rel_change");
-ABSL_FLAG(double, pos, 0.0, "position offset added to keyframes");
+ABSL_FLAG(int32_t, max_iters, 6, "num iters each level");
+ABSL_FLAG(int32_t, init_level, 2, "level to start optimization");
+ABSL_FLAG(double, max_xs, 0.5, "max xs to stop");
 
-ABSL_FLAG(bool, marg, false, "marginalization");
 ABSL_FLAG(int32_t, num_kfs, 4, "num pyramid levels");
-ABSL_FLAG(int32_t, num_levels, 3, "num pyramid levels");
-ABSL_FLAG(int32_t, num_extra, 1, "num extra adjust runs");
+ABSL_FLAG(int32_t, num_levels, 4, "num pyramid levels");
+ABSL_FLAG(int32_t, num_extra, 0, "num extra adjust runs");
+ABSL_FLAG(int32_t, skip, 0, "num frames to skip");
+ABSL_FLAG(bool, marg, false, "marginalization");
+
 ABSL_FLAG(double, max_depth, 100.0, "max depth to init");
+ABSL_FLAG(double, min_depth, 2.0, "min depth to vis");
+ABSL_FLAG(std::string, cm, "plasma", "colormap name");
+
+ABSL_FLAG(double, pos, 0.2, "position offset added to current frame");
 
 namespace sv::dsol {
 
@@ -56,29 +62,25 @@ void Run() {
   CHECK(dataset.Ok());
   LOG(INFO) << dataset;
 
-  const int index = absl::GetFlag(FLAGS_index);
+  PlayCfg play_cfg;
+  play_cfg.index = absl::GetFlag(FLAGS_index);
+  play_cfg.skip = absl::GetFlag(FLAGS_skip);
+  play_cfg.nlevels = absl::GetFlag(FLAGS_num_levels);
   const int nkfs = absl::GetFlag(FLAGS_num_kfs);
-  const int nlevels = absl::GetFlag(FLAGS_num_levels);
   const int nextra = absl::GetFlag(FLAGS_num_extra);
+  play_cfg.nframes = nkfs + nextra;
+  play_cfg.affine = absl::GetFlag(FLAGS_affine);
+  LOG(INFO) << play_cfg.Repr();
+
   const bool marg = absl::GetFlag(FLAGS_marg);
   const auto max_depth = absl::GetFlag(FLAGS_max_depth);
   const auto pos_err = absl::GetFlag(FLAGS_pos);
-  const auto stereo = absl::GetFlag(FLAGS_stereo);
-  const auto affine = absl::GetFlag(FLAGS_affine);
 
-  CHECK_GE(index, 0);
-  CHECK_GE(nkfs, 2);
-  CHECK_GE(nextra, 0);
-  CHECK_GT(nlevels, 0);
-
-  LOG(INFO) << "index: " << index;
-  LOG(INFO) << "num_kfs: " << nkfs;
-  LOG(INFO) << "num_levels: " << nlevels;
+  LOG(INFO) << "marg: " << marg;
   LOG(INFO) << "max_depth: " << max_depth;
-  LOG(INFO) << "stereo: " << stereo;
   LOG(INFO) << "pos_err: " << pos_err;
 
-  PlayData data(dataset, index, nkfs + nextra, nlevels, affine);
+  PlayData data(dataset, play_cfg);
   const auto& camera = data.camera;
   LOG(INFO) << camera.Repr();
 
@@ -105,9 +107,9 @@ void Run() {
   adjust_cfg.cost.max_outliers = absl::GetFlag(FLAGS_max_outliers);
   adjust_cfg.cost.grad_factor = absl::GetFlag(FLAGS_grad_factor);
 
-  adjust_cfg.solve.max_iters = absl::GetFlag(FLAGS_max_iters);
-  adjust_cfg.solve.max_levels = absl::GetFlag(FLAGS_max_levels);
-  adjust_cfg.solve.rel_change = absl::GetFlag(FLAGS_rel_change);
+  adjust_cfg.optm.init_level = absl::GetFlag(FLAGS_init_level);
+  adjust_cfg.optm.max_iters = absl::GetFlag(FLAGS_max_iters);
+  adjust_cfg.optm.max_xs = absl::GetFlag(FLAGS_max_xs);
 
   BundleAdjuster adjuster{adjust_cfg};
   LOG(INFO) << adjuster.Repr();
@@ -154,6 +156,12 @@ void Run() {
       }
       LOG(INFO) << "EST POS:\n" << window.GetAllTrans().transpose();
       LOG(INFO) << "EST AFF:\n" << window.GetAllAffine().transpose();
+      LOG(INFO) << fmt::format(LogColor::kBrightBlue, status.Repr());
+
+      for (int k = 0; k < window.size(); ++k) {
+        const auto& kf1 = window.KfAt(k);
+        LOG(INFO) << kf1.status().Repr();
+      }
 
       for (int k = 0; k < window.size(); ++k) {
         const auto& kf1 = window.KfAt(k);
@@ -188,20 +196,23 @@ void Run() {
 
   LOG(INFO) << tm.ReportAll(true);
 
-  //  if (vis) {
-  //    const ColorMap cmap = MakeCmapPlasma();
-  //    const IntervalD range(0.0, 1.0 / 4.0);
+  if (vis) {
+    WindowTiler tiler{};
+    const IntervalD range(0.0, 1.0 / absl::GetFlag(FLAGS_min_depth));
+    const auto color = CV_RGB(0, 255, 255);
+    const ColorMap cmap = GetColorMap(absl::GetFlag(FLAGS_cm));
 
-  //    for (int k = 0; k < window.size(); ++k) {
-  //      const auto& kf = window.KfAt(k);
-  //      cv::Mat disp;
-  //      cv::cvtColor(kf.grays_l().front(), disp, cv::COLOR_GRAY2BGR);
-  //      DrawFramePoints(disp, kf.points(), cmap, range, 2);
-  //      Imshow("kf" + std::to_string(k), disp);
-  //    }
+    for (int k = 0; k < window.size(); ++k) {
+      const auto& kf = window.KfAt(k);
+      cv::Mat disp;
+      cv::cvtColor(kf.gray_l(), disp, cv::COLOR_GRAY2BGR);
+      DrawFramePoints(disp, kf.points(), cmap, range, 3);
+      DrawSelectedPoints(disp, kf.points(), color, 1);
+      tiler.Tile(fmt::format("keyframe{}", k), disp);
+    }
 
-  //    cv::waitKey(-1);
-  //  }
+    cv::waitKey(-1);
+  }
 }
 
 }  // namespace sv::dsol

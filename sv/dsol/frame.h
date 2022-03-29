@@ -113,6 +113,7 @@ struct Frame {
   /// @brief Accessors
   const ImagePyramid& grays_l() const noexcept { return grays_l_; }
   const ImagePyramid& grays_r() const noexcept { return grays_r_; }
+  const cv::Mat& gray_l() const noexcept { return grays_l_.front(); }
 
   FrameState& state() noexcept { return state_; }
   const FrameState& state() const noexcept { return state_; }
@@ -131,61 +132,45 @@ struct Frame {
 struct KeyframeStatus {
   // frame
   int pixels{};   // num selected pixels
-  int patches{};  // num valid patches (all pyr)
-  // align
-  int outside{};  // num oob points
-  int outlier{};  // num outlier
-  int tracked{};  // num tracked points
-  // info
+  int depths{};   // num init depths
+  int patches{};  // num valid patches (in all pyr)
+  // point0 info
   int info_bad{};     // num bad points
   int info_uncert{};  // num uncertain points [0, ok)
   int info_ok{};      // num good points [ok, max)
   int info_max{};     // num max points == max
 
-  std::string FrameStatus();
-  std::string TrackStatus();
-  std::string PointStatus();
+  std::string FrameStatus() const;
+  std::string TrackStatus() const;
+  std::string PointStatus() const;
 
   std::string Repr() const;
   friend std::ostream& operator<<(std::ostream& os, const KeyframeStatus& rhs) {
     return os << rhs.Repr();
   }
 
-  /// @brief ratio of tracked points vs number of pixels
-  double TrackRatio() const noexcept { return tracked / (pixels + 1.0); }
-
   /// @brief Update depth info status
   void UpdateInfo(const FramePointGrid& points0);
-  /// @brief Update tracking status
-  void UpdateTrack(const DepthPointGrid& points1);
 };
 
 /// @brief a keyframe is a frame with depth at features
 struct Keyframe final : public Frame {
   KeyframeStatus status_{};
   FramePointGrid points_{};
-  std::vector<PatchGrid> patches_{};    // precomputed patches
-  bool fixed_{false};                   // whether first estimate is fixed
-  ErrorState x_{};                      // error state x in dso paper
-  Vector10d delta_{Vector10d::Zero()};  // delta on top of x in dso paper
+  std::vector<PatchGrid> patches_{};  // precomputed patches
+  bool fixed_{false};                 // whether first estimate is fixed
+  ErrorState x_{};                    // error state x in dso paper
 
   /// @brief Fix first estimate
   bool is_fixed() const noexcept { return fixed_; }
   void SetFixed() noexcept { fixed_ = true; }
   /// @brief This is eta0 in dso paper
   FrameState GetFirstEstimate() const noexcept;
-  /// @brief This is eta0 + x + delta in dso paper
-  FrameState GetEvaluationPoint() const noexcept;
-  /// @brief This is eta0 + x
-  void UpdateLinearizationPoint() noexcept;
 
   /// @brief Update state during optimization, need to call
   /// UpdateLinearizationPoint() to finalize the change
   void UpdateState(const Vector10dCRef& dx) noexcept override;
   void UpdatePoints(const VectorXdCRef& xm, int gsize = 0) noexcept;
-  void UpdateStatusTrack(const DepthPointGrid& points1) noexcept {
-    status_.UpdateTrack(points1);
-  }
   void UpdateStatusInfo() noexcept { status_.UpdateInfo(points_); }
 
   FramePointGrid& points() noexcept { return points_; }
@@ -202,20 +187,10 @@ struct Keyframe final : public Frame {
   /// @brief Allocate storage for points and patches, not for images
   /// @return number of bytes
   size_t Allocate(int num_levels, const cv::Size& grid_size);
-
-  /// @brief Precompute everything needed for this kf
-  void Precompute(const PixelGrid& pixels, const Camera& camera, int gsize = 0);
   /// @brief Initialize points (pixels only)
   int InitPoints(const PixelGrid& pixels, const Camera& camera);
-  /// @brief Initialize patches
-  /// @return number of patches from all levels
-  int InitPatches(int gsize = 0);
-  /// @brief Initialize patches at level
-  /// @return number of precomputed patches within this level
-  int InitPatchesLevel(int level, int gsize = 0);
 
   /// @group Initialize point depth from various sources
-  /// @brief Initialize point depth from constant (high alititude mode)
   int InitFromConst(double depth, double info = DepthPoint::kOkInfo);
   /// @brief Initialize point depth from depths (from RGBD or ground truth)
   int InitFromDepth(const cv::Mat& depth, double info = DepthPoint::kOkInfo);
@@ -226,13 +201,16 @@ struct Keyframe final : public Frame {
   /// @brief Initialize point depth from inverse depths (from FrameAligner)
   int InitFromAlign(const cv::Mat& idepth, double info);
 
+  /// @brief Initialize patches
+  /// @return number of patches from all levels
+  int InitPatches(int gsize = 0);
+  /// @brief Initialize patches at level
+  /// @return number of precomputed patches within this level
+  int InitPatchesLevel(int level, int gsize = 0);
+
   /// @brief Reset this keyframe
   void Reset() noexcept;
   bool Ok() const noexcept { return status_.pixels > 0; }
-
-  bool Precomputed() const noexcept {
-    return status_.pixels > 0 && status_.patches > 0;
-  }
 };
 
 using KeyframePtrSpan = absl::Span<Keyframe*>;
@@ -241,5 +219,9 @@ using KeyframePtrConstSpan = absl::Span<Keyframe const* const>;
 /// @brief Get a reference to the k-th keyframe, with not-null and ok checks
 Keyframe& GetKfAt(KeyframePtrSpan keyframes, int k);
 const Keyframe& GetKfAt(KeyframePtrConstSpan keyframes, int k);
+
+/// @brief Get the smallest bounding box that covers all points with
+/// info >= min_info
+cv::Rect2d GetMinBboxInfoGe(const FramePointGrid& points, double min_info);
 
 }  // namespace sv::dsol

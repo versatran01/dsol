@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Eigen/Core>
+#include <string>
 
 namespace sv {
 
@@ -24,6 +25,7 @@ class ColorMap {
     return GetRgb(x).reverse();
   }
 
+  bool Ok() const noexcept { return !data_.empty(); }
   const std::string& name() const noexcept { return name_; }
   int size() const noexcept { return static_cast<int>(data_.size()); }
 
@@ -38,5 +40,6 @@ ColorMap MakeCmapJet();
 ColorMap MakeCmapHeat();
 ColorMap MakeCmapTurbo();
 ColorMap MakeCmapPlasma();
+ColorMap GetColorMap(std::string_view name);
 
 }  // namespace sv

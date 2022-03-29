@@ -4,42 +4,45 @@
 
 namespace sv::dsol {
 
-struct DirectSolveCfg {
-  int max_iters{4};         // num max iters per level
-  int max_levels{0};        // num levels used, 0 means all levels
-  double rel_change{0.01};  // relative change of cost to stop early
+/// @brief Direct method optimization config
+struct DirectOptmCfg {
+  int init_level{0};   // init level to start optimzation
+  int max_iters{8};    // num max iters per level
+  double max_xs{0.1};  // max change in normalized change to stop early
 
   void Check() const;
   std::string Repr() const;
 
-  /// @brief Get actual num levels to use
-  int GetNumLevels(int levels) const noexcept {
-    return max_levels > 0 ? std::min(max_levels, levels) : levels;
+  /// @brief Get actual init level
+  int GetInitLevel(int num_levels) const noexcept {
+    const int max_level = num_levels - 1;
+    return init_level <= 0 ? max_level + init_level
+                           : std::min(init_level, max_level);
   }
 };
 
+/// @brief Direct method cost config
 struct DirectCostCfg {
   bool affine{false};       // use affine brightness model
   bool stereo{false};       // use stereo images
-  int c2{4};                // gradient weight c^2, w_g = c^2 / (c^2 + dI^2)
+  int c2{2};                // gradient weight c^2, w_g = c^2 / (c^2 + dI^2)
   int dof{4};               // dof for t-dist, w_r = (dof + 1) / (dof + r^2)
   int max_outliers{1};      // max outliers in each patch
-  double grad_factor{1.0};  // r^2 > grad_factor * g^2 is outlier
-  double min_depth{0.5};    // min depth to skip when project
+  double grad_factor{1.5};  // r^2 > grad_factor * g^2 is outlier
+  double min_depth{0.2};    // min depth to skip when project
 
   void Check() const;
   std::string Repr() const;
 
   /// @brief Get actual frame dim
   int GetFrameDim() const noexcept {
-    return Dim::kPose + Dim::kAffine * static_cast<int>(affine) *
-                            (static_cast<int>(stereo) + 1);
+    return Dim::kPose + Dim::kAffine * affine * (stereo + 1);
   }
 };
 
-/// @brief Config of direct method
+/// @brief Direct method config
 struct DirectCfg {
-  DirectSolveCfg solve;
+  DirectOptmCfg optm;
   DirectCostCfg cost;
 
   void Check() const;
@@ -49,24 +52,33 @@ struct DirectCfg {
   }
 };
 
-/// @brief Status of direct method
+/// @brief Direct method status
 struct DirectStatus {
-  int num_kfs{};       // num kfs used
-  int num_points{};    // num points used
-  int num_levels{};    // num levels used
-  int max_iters{};     // max iters possible
-  int num_iters{};     // num iters run
-  int num_costs{};     // num costs
-  double last_cost{};  // last costs
-  double last_dx2{};   // last delta x sqnorm
+  int num_kfs{};          // num kfs used
+  int num_points{};       // num points used
+  int num_levels{};       // num levels used
+  int num_iters{};        // num iters run
+  int good_iters{};       // good iters
+  int num_costs{};        // num costs
+  double cost{};          // total cost
+  bool converged{false};  // whether convergence reached
 
   std::string Repr() const;
   friend std::ostream& operator<<(std::ostream& os, const DirectStatus& rhs) {
     return os << rhs.Repr();
   }
+
+  void Accumulate(const DirectStatus& status) noexcept {
+    num_levels += status.num_levels;
+    good_iters += status.good_iters;
+    num_iters += status.num_iters;
+    num_costs = status.num_costs;
+    cost = status.cost;
+    converged = status.converged;
+  }
 };
 
-/// @brief Cost for direct method
+/// @brief Direct method cost
 struct DirectCost {
   using ArrayKd = Patch::ArrayKd;
   using Matrix2Kd = Patch::Matrix2Kd;
@@ -80,35 +92,30 @@ struct DirectCost {
   /// @brief Calculate weight for each cost
   /// @param g2 is squared norm of image gradient
   /// @param r2 is squared norm of residual
-  double CalcWeight(double g2, double r2, double wi = 1.0) const noexcept {
-    const auto wg = cfg.c2 / (cfg.c2 + g2);               // gradient weight
-    const auto wr = (cfg.dof + 1) / (cfg.dof + r2 * wg);  // student t weight
-    return wg * wr * wi;
-  }
-
   ArrayKd CalcWeight(const ArrayKd& g2,
                      const ArrayKd& r2,
                      double wi = 1.0) const noexcept {
+    // return wg * (cfg.dof + 1) / (cfg.dof + r2 * wg);
+    // return wi * (cfg.dof + 1) / (cfg.dof / wg + r2);
+    // const auto num = wi * cfg.c2 * (cfg.dof + 1);
+    // return num / (cfg.dof * (cfg.c2 + g2) + r2);
     const ArrayKd wg = cfg.c2 / (cfg.c2 + g2);
     return wg * (wi * (cfg.dof + 1)) / (cfg.dof + r2 * wg);
   }
 
   /// @brief Check if this warp is ok or not
   /// @details If residual bigger than gradient * grad_factor
+  int GetNumOutliers(const ArrayKd& g2, const ArrayKd& r2) const noexcept {
+    return static_cast<int>((r2 > (cfg.grad_factor * g2)).count());
+  }
   bool IsWarpBad(const ArrayKd& g2, const ArrayKd& r2) const noexcept {
-    return ((r2 > cfg.grad_factor * g2).count() > cfg.max_outliers);
+    return (r2 > (cfg.grad_factor * g2)).count() > cfg.max_outliers;
   }
 
   /// @brief Compute disparity
   void ApplyDisp(Eigen::Ref<Matrix2Kd> uv1s,
-                 const ArrayKd& z1ps,
-                 double q0) const noexcept {
-    // Warp to right image is simply subtracting ux by disparity d
-    // disparity is computed by d = f * b / z, but since our warping has no
-    // scale, we need to scale it back.
-    //
-    // z1 = z1' / q0 -> q1 = q0 / z1'
-    uv1s.row(0).array() -= camera.Idepth2Disp((q0 / z1ps).eval());
+                 const ArrayKd& disps) const noexcept {
+    uv1s.row(0).array() -= camera.Idepth2Disp(disps);
   }
 
   static void ExtractState(const FrameState& state0,
@@ -137,16 +144,16 @@ struct DirectMethod {
 
   const DirectCfg& cfg() const noexcept { return cfg_; }
 
-  /// @brief Update status and check for early stop
-  bool OnIterEnd(DirectStatus& status,
-                 int level,
-                 int iter,
-                 int num,
-                 double cost,
-                 double dx2) const noexcept;
+  static std::string LogIter(const std::pair<int, int>& level,
+                             const std::pair<int, int>& iter,
+                             const std::pair<int, double>& num_cost,
+                             const std::pair<double, double>& xs,
+                             double x2);
+  static std::string LogIter(const std::pair<int, int>& level,
+                             const std::pair<int, int>& iter,
+                             const std::pair<int, double>& num_cost);
 
-  /// @brief Prepare points, only consider point with info >= min_info
-  int PointsInfoGe(KeyframePtrSpan keyframes, double min_info);
+  static std::string LogConverge(int level, const DirectStatus& status);
 };
 
 /// @brief Transform points with the same scale using SE3
@@ -172,6 +179,12 @@ MatrixMNd<2, N> Warp(const MatrixMNd<2, N>& uv0,
   const auto nc1 = Project(pt1);
   const auto uv1 = PixelFromPnorm(nc1, fc1);
   return uv1;
+}
+
+inline double FastPoint5Pow(int n) noexcept {
+  //  static constexpr std::array<double, 4> res = {1.0, 0.5, 0.25, 0.125};
+  static constexpr std::array<double, 4> res = {1.0, 0.25, 0.0625, 0.015625};
+  return res[n];
 }
 
 }  // namespace sv::dsol

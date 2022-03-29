@@ -6,6 +6,30 @@
 
 namespace sv::dsol {
 
+int Proj2Mask(const DepthPointGrid& points1,
+              cv::Mat& mask,
+              double scale,
+              int dilate) {
+  CHECK_GT(scale, 0);
+  CHECK_LE(scale, 1);
+  CHECK_GE(dilate, 0);
+
+  int n_pixels = 0;  // number of masked out points
+  for (const auto& point : points1) {
+    if (!point.InfoOk()) continue;
+
+    // scale to mask level, because grid is in full res
+    const auto px_s = ScalePix(point.px(), scale);
+    const auto px_i = RoundPix(px_s);
+    // skip if oob
+    if (IsPixOut(mask, px_i, dilate)) continue;
+
+    // update mask
+    n_pixels += MatSetWin<uchar>(mask, px_i, {dilate, dilate}, 255);
+  }
+  return n_pixels;
+}
+
 PixelGrad FindMaxGrad(const cv::Mat& image,
                       const cv::Rect& win,
                       const cv::Mat& mask,
@@ -115,8 +139,8 @@ int PixelSelector::Select(const ImagePyramid& grays, int gsize) {
 
   // Allocate storage if needed
   Allocate(grays);
-  std::fill(pixels_.begin(), pixels_.end(), cv::Point{-1, -1});
-  std::fill(pxgrads_.begin(), pxgrads_.end(), PixelGrad{});
+  pixels_.reset(cv::Point{-1, -1});
+  pxgrads_.reset();
 
   // Select pixels at (maybe smaller) pyramid level first
   CalcPixelGrads(grays.at(cfg_.sel_level),
@@ -133,35 +157,47 @@ int PixelSelector::Select(const ImagePyramid& grays, int gsize) {
   // Do a first pass of selection using the current min_grad
   const auto n1 = SelectPixels(gray_top, upscale, cfg_.min_grad, gsize);
   n_pixels += n1;
-
   // Based on the number of pixels, determine how we should change min_grad
-  const double ratio = static_cast<double>(n1) / pixels_.area();
-
-  // Determine change direction
-  int delta = 0;
-  if (ratio < cfg_.min_ratio) {
-    delta = -1;
-  } else if (ratio > cfg_.max_ratio) {
-    delta = 1;
-  }
+  const double ratio1 = static_cast<double>(n_pixels) / pixels_.area();
 
   // Do a 2nd round of selection for the rest of pixels with half of min_grad
-  if (cfg_.reselect && delta < 0) {
+  if (cfg_.reselect && ratio1 < cfg_.min_ratio) {
     n_pixels += SelectPixels(gray_top, upscale, cfg_.min_grad / 2, gsize);
   }
+  const auto ratio2 = static_cast<double>(n_pixels) / pixels_.area();
+  const auto new_min_grad = std::clamp(AdaptMinGrad(ratio1, ratio2), 2, 32);
 
-  VLOG(1) << fmt::format(
-      "- select: 1st={}, ratio={:.2f}% grad={}, 2nd={}, grad={}",
+  LOG(INFO) << fmt::format(
+      "select: 1st={:3d}, ratio={:.2f}%, min_grad={} | 2nd={}, "
+      "min_grad={}, ratio2={:.2f}% | min_grad change:{}->{}",
       n1,
-      ratio * 100,
+      ratio1 * 100,
       cfg_.min_grad,
       n_pixels - n1,
-      cfg_.min_grad / 2);
+      cfg_.min_grad / 2,
+      ratio2 * 100,
+      cfg_.min_grad,
+      new_min_grad);
 
   // Update min_grad for next round
-  cfg_.min_grad = std::clamp(cfg_.min_grad + delta * 2, 2, 32);
-  VLOG_IF(1, delta != 0) << "change min grad to : " << cfg_.min_grad;
+  cfg_.min_grad = new_min_grad;
   return n_pixels;
+}
+
+int PixelSelector::AdaptMinGrad(double ratio1, double ratio2) const noexcept {
+  // If too many pixels selected, we slightly increase min_grad to detect fewer
+  if (ratio1 > cfg_.max_ratio) return cfg_.min_grad + 2;
+
+  // If not enough in the 1st round
+  if (ratio1 < cfg_.min_ratio) {
+    // If still not enough in 2nd round, just half min_grad
+    if (ratio2 < cfg_.max_ratio) return cfg_.min_grad / 2;
+    // Only decrease by a bit if got enough in 2nd round
+    return cfg_.min_grad - 2;
+  }
+
+  // Other wise don't change
+  return cfg_.min_grad;
 }
 
 int PixelSelector::SelectPixels(int min_grad) {
@@ -213,37 +249,15 @@ int PixelSelector::SelectPixels(const cv::Mat& gray,
       std::plus<>{});
 }
 
-int PixelSelector::CreateMask(absl::Span<const DepthPointGrid> points1s) {
+int PixelSelector::SetOccMask(absl::Span<const DepthPointGrid> points1s) {
   CHECK(!occ_mask_.empty());
   occ_mask_.setTo(0);
+
   const auto scale = std::pow(2, -cfg_.sel_level);
   int n_pixels = 0;
+
   for (const auto& points1 : points1s) {
-    n_pixels += UpdateMask(points1, scale, cfg_.nms_size);
-  }
-  return n_pixels;
-}
-
-int PixelSelector::UpdateMask(const DepthPointGrid& points1,
-                              double scale,
-                              int dilate) {
-  CHECK_GT(scale, 0);
-  CHECK_LE(scale, 1);
-  CHECK_GE(dilate, 0);
-
-  int n_pixels = 0;  // number of masked out points
-  for (const auto& point : points1) {
-    if (!point.InfoOk()) continue;
-
-    // scale to mask level, because grid is in full res
-    const auto px_s = ScalePix(point.px(), scale);
-    const auto px_i = RoundPix(px_s);
-    // skip if oob
-    if (IsPixOut(occ_mask_, px_i, dilate)) continue;
-
-    // update mask
-    n_pixels += static_cast<int>(
-        MatSetWin<uchar>(occ_mask_, px_i, {dilate, dilate}, 255));
+    n_pixels += Proj2Mask(points1, occ_mask_, scale, cfg_.nms_size);
   }
   return n_pixels;
 }
@@ -284,5 +298,4 @@ size_t PixelSelector::Allocate(const ImagePyramid& grays) {
   const auto sel = grays.at(cfg_.sel_level);
   return Allocate({top.cols, top.rows}, {sel.cols, sel.rows});
 }
-
 }  // namespace sv::dsol

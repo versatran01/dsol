@@ -5,6 +5,7 @@
 #include <functional>
 #include <opencv2/imgproc.hpp>
 
+#include "sv/dsol/pixel.h"
 #include "sv/dsol/viz.h"
 #include "sv/util/logging.h"
 #include "sv/util/ocv.h"
@@ -14,12 +15,10 @@ namespace sv::dsol {
 
 namespace {
 
-// FIXEME (dsol): this is super hacky, maybe put them into a class
-const ColorMap cmap = MakeCmapPlasma();
-WindowTiler tiler{{1440, 900}, /*offset*/ {400, 600}, /*start*/ {400, 0}};
+WindowTiler tiler{{1920, 1080}, /*offset*/ {400, 500}, /*start*/ {400, 0}};
 PyramidDisplay disp;
-TimerSummary ts{"odom"};
-StatsSummary ss{"odom"};
+TimerSummary ts{"dsol"};
+StatsSummary ss{"dsol"};
 
 TimerSummary::StatsT SumStatsStartWith(const TimerSummary& tm,
                                        std::string_view start) {
@@ -51,8 +50,8 @@ void OdomCfg::Check() const {
 std::string OdomCfg::Repr() const {
   return fmt::format(
       "OdomCfg(tbb={}, log={}, vis={}, marg={}, num_kfs={}, num_levels={}, "
-      "min_track_ratio={}, min_track_per_kf={}, vis_min_depth={}, reinit={}, "
-      "init_depth={}, init_stereo={}, init_align={})",
+      "min_track_ratio={}, vis_min_depth={}, "
+      "reinit={}, init_depth={}, init_stereo={}, init_align={})",
       tbb,
       log,
       vis,
@@ -60,7 +59,6 @@ std::string OdomCfg::Repr() const {
       num_kfs,
       num_levels,
       min_track_ratio,
-      min_track_per_kf,
       vis_min_depth,
       reinit,
       init_depth,
@@ -130,6 +128,11 @@ size_t DirectOdometry::Allocate(const ImagePyramid& grays, bool is_stereo) {
                            static_cast<double>(window_bytes) / 1e6,
                            static_cast<double>(bytes) / 1e6);
 
+  // Check colormap is ok
+  if (cfg_.vis) {
+    CHECK(cmap.Ok());
+  }
+
   return bytes;
 }
 
@@ -147,11 +150,11 @@ std::string DirectOdometry::Repr() const {
 
 OdomStatus DirectOdometry::Estimate(const cv::Mat& image_l,
                                     const cv::Mat& image_r,
-                                    const Sophus::SE3d& T_w_cl,
+                                    const Sophus::SE3d& dT,
                                     const cv::Mat& depth) {
   OdomStatus status;
 
-  status.track = Track(image_l, image_r, T_w_cl);
+  status.track = Track(image_l, image_r, dT);
   if (cfg_.vis) DrawFrame(depth);
 
   if (!status.track.ok) Reinitialize();
@@ -165,7 +168,7 @@ OdomStatus DirectOdometry::Estimate(const cv::Mat& image_l,
 
 TrackStatus DirectOdometry::Track(const cv::Mat& image_l,
                                   const cv::Mat& image_r,
-                                  const Sophus::SE3d& T_w_cl) {
+                                  const Sophus::SE3d& dT) {
   TrackStatus status;
   // Make sure if we use affine in align, we also use it in adjust
   CHECK_EQ(aligner.cfg().cost.affine, adjuster.cfg().cost.affine);
@@ -184,10 +187,10 @@ TrackStatus DirectOdometry::Track(const cv::Mat& image_l,
     total_bytes_ = Allocate(grays_l, !grays_r.empty());
   }
 
-  // Update frame (keep the affine parameters)
+  // Update frame (keep the old affine parameters)
   // Note that this uses the same storage as the static grays0 and grays1
   frame.SetGrays(grays_l, grays_r);
-  frame.SetTwc(T_w_cl);
+  frame.SetTwc(frame.Twc() * dT);
 
   // Get a copy of the current state if alignment failed
   const FrameState init_state = frame.state();
@@ -207,8 +210,7 @@ TrackStatus DirectOdometry::Track(const cv::Mat& image_l,
 
   status.Twc = frame.Twc();
   // Determine whether we need to add a keyframe
-  // If tracking failed we definitely need a new keyframe
-  status.add_kf = !status.ok || ShouldAddKeyframe();
+  status.add_kf = ShouldAddKeyframe();
   return status;
 }
 
@@ -305,8 +307,8 @@ bool DirectOdometry::TrackFrame() {
     frame.state().affine_r = frame.state().affine_l;
   }
 
-  // If num cost is too small then it is likely that tracking failed
-  return status.num_costs >= (cfg_.num_kfs * cfg_.min_track_per_kf);
+  // Only consider failed if num_level is 1 and not converged
+  return true;
 }
 
 void DirectOdometry::Reinitialize() {
@@ -320,40 +322,47 @@ void DirectOdometry::Reinitialize() {
                                "true, press any key to exit the program.");
       cv::waitKey(-1);
     }
-    CHECK(false) << fmt::format(log_color, "Tracking failed, exit");
+    //    CHECK(false) << fmt::format(log_color, "Tracking failed, exit");
   }
 
   // Reset all kf, clear window, reset prior
   for (int k = 0; k < window.size(); ++k) {
     window.KfAt(k).Reset();
   }
-  window.Clear();
+  window.Reset();
+  aligner.Reset();
   adjuster.ResetPrior();
   LOG(INFO) << fmt::format(log_color, "Reinitialize, clearing window");
 }
 
 bool DirectOdometry::ShouldAddKeyframe() const {
-  // If window is not full, add kf anyway
-  if (!window.full()) return true;
+  // Add kf if window is empty
+  if (window.empty()) return true;
 
-  // Get total number of tracked points from kf status
-  int n_pixels = 0;
-  int n_tracked = 0;
+  const auto num_kfs = window.size();
+
+  const int num_tracked_cells = CountIdepths(aligner.idepths());
+  if (num_tracked_cells < num_kfs * 25) return true;
+
+  // Otherwise get total initialized depth in all kfs
+  int num_depth_cells = 0;
   for (int k = 0; k < window.size(); ++k) {
-    const auto& kf_status = window.KfAt(k).status();
-    n_tracked += kf_status.tracked;
-    n_pixels += kf_status.pixels;
-    // LOG(INFO) << fmt::format(
-    // "kf {}, ratio: {}", k, kf_status.tracked / (kf_status.pixels + 1.0));
+    const auto& status = window.KfAt(k).status();
+    num_depth_cells += status.depths;
   }
 
-  const auto ratio = static_cast<double>(n_tracked) / (n_pixels + 1.0);
-  LOG(INFO) << fmt::format("num pixels: {}, num tracked {}, ratio: {:.2f}%",
-                           n_pixels,
-                           n_tracked,
-                           ratio * 100);
+  const auto mean_depth_cells =
+      static_cast<double>(num_depth_cells) / window.size();
+  const auto track_ratio = num_tracked_cells / mean_depth_cells;
 
-  return ratio < cfg_.min_track_ratio;
+  LOG(INFO) << fmt::format(LogColor::kBrightRed,
+                           "win {}, tracked {}, depths {}, ratio: {:.2f}%",
+                           window.size(),
+                           num_tracked_cells,
+                           mean_depth_cells,
+                           track_ratio * 100);
+
+  return track_ratio < cfg_.min_track_ratio;
 }
 
 void DirectOdometry::AddKeyframe(const cv::Mat& depth) {
@@ -364,8 +373,8 @@ void DirectOdometry::AddKeyframe(const cv::Mat& depth) {
 
   int n_mask{};
   {  // Create a mask from projections of map points
-    auto t = ts.Scoped("K0_CreateMask");
-    n_mask = selector.CreateMask(aligner.points1_vec());
+    auto t = ts.Scoped("K0_SetOccMask");
+    n_mask = selector.SetOccMask(aligner.points1_vec());
   }
 
   int n_pixel{};
@@ -374,52 +383,55 @@ void DirectOdometry::AddKeyframe(const cv::Mat& depth) {
     n_pixel = selector.Select(kf.grays_l(), cfg_.tbb);
   }
 
-  {  // Precompute keyframe for direct image alignment
-    auto t = ts.Scoped("K2_Precompute");
-    kf.Precompute(selector.pixels(), camera, cfg_.tbb);
+  {  // Init points in keyframe
+    auto t = ts.Scoped("K2_InitPoints");
+    kf.InitPoints(selector.pixels(), camera);
   }
 
   // Try to initialize depths of newly selected pixels
   // Initialize from depth image
-  int n_init_depth{};
+  int n_depth{};
   if (cfg_.init_depth) {
     CHECK(!depth.empty());
     auto t = ts.Scoped("K3_InitDepths");
-    n_init_depth = kf.InitFromDepth(depth, DepthPoint::kOkInfo);
+    n_depth = kf.InitFromDepth(depth, DepthPoint::kOkInfo);
   }
 
   // Initialize from stereo matching
-  int n_init_stereo{};
+  int n_stereo{};
   if (cfg_.init_stereo) {
     CHECK(frame.is_stereo()) << "Try to init from stereo but frame is mono";
     auto t = ts.Scoped("K4_InitStereo");
-    n_init_stereo = matcher.Match(kf, camera, cfg_.tbb);
+    n_stereo = matcher.Match(kf, camera, cfg_.tbb);
     kf.InitFromDisp(matcher.disps(), camera, DepthPoint::kOkInfo);
   }
 
   // Initialize points from Aligner results
-  int n_init_align{};
+  int n_align{};
   if (cfg_.init_align && !aligner.points1_vec().empty()) {
     auto t = ts.Scoped("K5_InitAlign");
-    const auto idepth = aligner.CalcCellIdepth(selector.cfg().cell_size);
-    n_init_align = kf.InitFromAlign(idepth, DepthPoint::kOkInfo - 1);
+    n_align = kf.InitFromAlign(aligner.idepths(), DepthPoint::kOkInfo - 1);
+  }
+
+  {  // Init patches in keyframe
+    auto t = ts.Scoped("K6_InitPatches");
+    kf.InitPatches(cfg_.tbb);
   }
 
   // Update status
   kf.UpdateStatusInfo();
 
   constexpr auto log_color = LogColor::kBrightBlue;
-  LOG(INFO) << fmt::format(
-      log_color,
-      "PointInitStatus(maskes={}, select={}, depth={}, stereo={}, align={}, "
-      "noinit={}, min_grad={})",
-      n_mask,
-      n_pixel,
-      n_init_depth,
-      n_init_stereo,
-      n_init_align,
-      n_pixel - n_init_depth - n_init_stereo - n_init_align,
-      selector.cfg().min_grad);
+  LOG(INFO) << fmt::format(log_color,
+                           "KfInit: maskes={}, select={}, depth={}, stereo={}, "
+                           "align={}, noinit={}, min_grad={}",
+                           n_mask,
+                           n_pixel,
+                           n_depth,
+                           n_stereo,
+                           n_align,
+                           n_pixel - n_depth - n_stereo - n_align,
+                           selector.cfg().min_grad);
   LOG(INFO) << fmt::format(log_color, "++ add keyframe");
   LOG(INFO) << fmt::format(log_color, "{}", kf.status().Repr());
 }
@@ -428,18 +440,8 @@ void DirectOdometry::RemoveKeyframe() {
   CHECK_GE(window.size(), 2);
   constexpr auto log_color = LogColor::kBrightBlue;
 
-  // Find the keyframe with the least tracked ratio, excluding latest keyframe
-  int kf_ind = -1;
-  double worst_ratio = 1.0;
-  for (int k = 0; k < window.size() - 1; ++k) {
-    // A simple heuristic that make newer keyframe has higher track ratio thus
-    // more likely to remove older keyframe
-    const auto ratio = window.KfAt(k).status().TrackRatio() * (1 + k * 0.05);
-    if (ratio < worst_ratio) {
-      kf_ind = k;
-      worst_ratio = ratio;
-    }
-  }
+  // Find keyframe to remove by tracking overlap
+  const auto [kf_ind, score] = FindKeyframeToRemove();
 
   if (cfg_.marg) {
     LOG(INFO) << fmt::format(log_color, "-- Marginalizing kf {}", kf_ind);
@@ -462,8 +464,49 @@ void DirectOdometry::RemoveKeyframe() {
   LOG(INFO) << fmt::format(log_color,
                            "-- Remove kf {} with lowest tracking ratio {:.2f}",
                            kf_ind,
-                           worst_ratio * 100);
+                           score * 100);
   LOG(INFO) << fmt::format(log_color, "-- {}", status.Repr());
+}
+
+std::pair<int, double> DirectOdometry::FindKeyframeToRemove() const {
+  int ind_kf = -1;
+  double min_score = 1.0;  // best case is 100% overlap so not possible
+
+  static cv::Mat mask;
+  mask.create(selector.pixels().cvsize(), CV_8UC1);
+
+  const auto area = selector.pixels().area();
+  const auto cell = selector.cfg().cell_size;
+  const cv::Size cell_size{cell, cell};
+
+  // For each keyframe other than the last one, we compute its overlap with the
+  // current image (overlap = occupied cells / all cells)
+  // We use a heuristic that slightly decrease the overlap score of newer
+  // keyframes. Returns the index of the kf with the least overlap score
+  for (int k = 0; k < window.size() - 1; ++k) {
+    mask.setTo(0);  // reset mask
+    const auto& points1 = aligner.points1_vec().at(k);
+    Proj2Mask(points1, cell_size, mask);
+    // Get number of occ
+    const int occ = cv::countNonZero(mask);
+    const double overlap = static_cast<double>(occ) / area;
+    // This is the heuristic to lower score for newer kfs, this number should be
+    // really small
+    const double score = overlap * (1.0 - k * 0.02);
+
+    LOG(INFO) << fmt::format(LogColor::kRed,
+                             "k {}, occ {}, overlap {:.2f}%, score {:.2f}%",
+                             k,
+                             occ,
+                             overlap * 100,
+                             score * 100);
+    if (score < min_score) {
+      min_score = score;
+      ind_kf = k;
+    }
+  }
+
+  return {ind_kf, min_score};
 }
 
 void DirectOdometry::BundleAdjust() {
@@ -499,7 +542,7 @@ void DirectOdometry::BundleAdjust() {
   frame.SetState(window.CurrKf().state());
 }
 
-void DirectOdometry::Summarize(bool new_kf) {
+void DirectOdometry::Summarize(bool new_kf) const {
   const auto stats_tracking = SumStatsStartWith(ts, "T");
   ts.Update("All_Tracking", stats_tracking);
 
@@ -511,7 +554,7 @@ void DirectOdometry::Summarize(bool new_kf) {
   LOG_EVERY_N(INFO, cfg_.log) << ts.ReportAll(true);
 }
 
-void DirectOdometry::DrawFrame(const cv::Mat& depth) {
+void DirectOdometry::DrawFrame(const cv::Mat& depth) const {
   tiler.Reset();
 
   static cv::Mat disp_frame;
@@ -536,22 +579,27 @@ void DirectOdometry::DrawFrame(const cv::Mat& depth) {
 }
 
 void DirectOdometry::DrawKeyframe() const {
-  static cv::Mat disp_kf;
-  const auto& kf = window.CurrKf();
-  cv::cvtColor(kf.grays_l().front(), disp_kf, cv::COLOR_GRAY2BGR);
-
   // Draw newly selected pixels and their initialized depths
   const auto cyan = CV_RGB(0, 255, 255);
   const IntervalD range(0.0, 1.0 / cfg_.vis_min_depth);
-  DrawFramePoints(disp_kf, kf.points(), cmap, range, 3);
-  DrawSelectedPixels(disp_kf, selector.pixels(), cyan, 1);
 
-  tiler.Tile("kf", disp_kf);
-  tiler.Tile("mask", selector.mask());
+  // Draw points in every keyframe
+  static std::vector<cv::Mat> disps;
+  disps.resize(window.size());
+  for (int k = 0; k < window.size(); ++k) {
+    const auto& kf = window.KfAt(k);
+    auto& disp = disps.at(k);
+    // Convert to color
+    cv::cvtColor(kf.gray_l(), disp, cv::COLOR_GRAY2BGR);
+    DrawFramePoints(disp, kf.points(), cmap, range, 3);
+    DrawSelectedPoints(disp, kf.points(), cyan, 1);
+    tiler.Tile(fmt::format("keyframe{}", k), disp);
+  }
 
-  // tmp, draw stereo matches
-  cv::Mat disp_stereo;
-  cv::cvtColor(kf.grays_l().front(), disp_stereo, cv::COLOR_GRAY2BGR);
+  // Draw stereo
+  const auto& curr_kf = window.CurrKf();
+  static cv::Mat disp_stereo;
+  cv::cvtColor(curr_kf.gray_l(), disp_stereo, cv::COLOR_GRAY2BGR);
   DrawDisparities(disp_stereo,
                   matcher.disps(),
                   selector.pixels(),
@@ -559,6 +607,9 @@ void DirectOdometry::DrawKeyframe() const {
                   camera.Depth2Disp(matcher.cfg().min_depth),
                   2);
   tiler.Tile("stereo", disp_stereo);
+
+  // Draw mask
+  tiler.Tile("mask", selector.mask());
 
   cv::waitKey(1);
 }

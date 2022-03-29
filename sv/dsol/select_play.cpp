@@ -12,9 +12,9 @@ ABSL_FLAG(bool, vis, true, "visualization");
 ABSL_FLAG(int32_t, index, 0, "dataset index");
 ABSL_FLAG(std::string,
           dir,
-//          "/home/chao/Workspace/dataset/kitti/Scene20/clone",
-//          "/media/chao/External/dataset/kitti/dataset/sequences/09",
-          "/media/chao/External/dataset/tartan_air/carwelding/Easy/P002",
+          "/home/chao/Workspace/dataset/vkitti/Scene20/clone",
+          // "/media/chao/External/dataset/kitti/dataset/sequences/02",
+          // "/media/chao/External/dataset/tartan_air/carwelding/Easy/P002",
           "dataset dir");
 
 ABSL_FLAG(int32_t, cell_size, 16, "cell size");
@@ -41,14 +41,13 @@ void Run() {
   CHECK(dataset.Ok());
   LOG(INFO) << dataset;
 
-  const int index = absl::GetFlag(FLAGS_index);
-  LOG(INFO) << "index: " << index;
-  const int nlevels = absl::GetFlag(FLAGS_num_levels);
-  LOG(INFO) << "num_levels: " << nlevels;
-  const int nkfs = absl::GetFlag(FLAGS_num_kfs);
-  LOG(INFO) << "num_kfs: " << nkfs;
+  PlayCfg play_cfg;
+  play_cfg.index = absl::GetFlag(FLAGS_index);
+  play_cfg.nframes = absl::GetFlag(FLAGS_num_kfs);
+  play_cfg.nlevels = absl::GetFlag(FLAGS_num_levels);
+  LOG(INFO) << play_cfg.Repr();
 
-  PlayData data(dataset, index, nkfs, nlevels, false);
+  PlayData data(dataset, play_cfg);
 
   SelectCfg sel_cfg;
   sel_cfg.sel_level = absl::GetFlag(FLAGS_sel_level);
@@ -63,7 +62,7 @@ void Run() {
 
   WindowTiler tiler;
 
-  for (int k = 0; k < nkfs; ++k) {
+  for (int k = 0; k < play_cfg.nframes; ++k) {
     const auto& frame = data.frames.at(k);
 
     int npixels = 0;
@@ -74,10 +73,10 @@ void Run() {
     LOG(INFO) << fmt::format("{}: n pixels {}", k, npixels);
 
     if (vis) {
-      const auto color = CV_RGB(0, 255, 255);
+      const auto color = CV_RGB(255, 0, 0);
       cv::Mat disp;
       cv::cvtColor(frame.grays_l().front(), disp, cv::COLOR_GRAY2BGR);
-      DrawSelectedPixels(disp, selector.pixels(), color, 1);
+      DrawSelectedPixels(disp, selector.pixels(), color, 2);
       tiler.Tile(std::to_string(k), disp);
     }
   }

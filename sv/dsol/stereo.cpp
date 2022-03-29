@@ -42,6 +42,7 @@ int StereoMatcher::Match(const Keyframe& keyframe,
   disps_.setTo(-1);
 
   const int coarse_level = cfg_.match_level;
+  CHECK_LT(coarse_level, keyframe.levels());
   const auto cam_s = camera.AtLevel(coarse_level);
   const auto max_disp =
       static_cast<int>(std::ceil(cam_s.Depth2Disp(cfg_.min_depth)));

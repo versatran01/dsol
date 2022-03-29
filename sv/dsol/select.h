@@ -79,7 +79,7 @@ class PixelSelector {
   int Select(const ImagePyramid& grays, int gsize = 0);
 
   /// @brief Update projection mask from warped
-  int CreateMask(absl::Span<const DepthPointGrid> points1s);
+  int SetOccMask(absl::Span<const DepthPointGrid> points1s);
 
   /// @brief Allocate storage for mask and grid
   /// @return number of bytes allocated
@@ -94,7 +94,7 @@ class PixelSelector {
                    int min_grad,
                    int gsize = 0);
 
-  int UpdateMask(const DepthPointGrid& points, double scale, int dilate);
+  int AdaptMinGrad(double ratio1, double ratio2) const noexcept;
 };
 
 }  // namespace sv::dsol

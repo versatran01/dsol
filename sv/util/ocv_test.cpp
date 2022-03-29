@@ -28,5 +28,16 @@ TEST(OcvTest, TestCvTypeStr) {
   EXPECT_EQ(CvTypeStr(CV_32FC4), "32FC4");
 }
 
+TEST(OcvTest, TestRange) {
+  cv::Range r{1, 2};
+  auto s = r * 2;
+  EXPECT_EQ(s.start, 2);
+  EXPECT_EQ(s.end, 4);
+
+  auto d = s / 2;
+  EXPECT_EQ(d.start, 1);
+  EXPECT_EQ(d.end, 2);
+}
+
 }  // namespace
 }  // namespace sv

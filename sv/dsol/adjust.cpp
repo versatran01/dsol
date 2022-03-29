@@ -12,6 +12,325 @@ using Vector3i = Eigen::Vector3i;
 using Vector3d = Eigen::Vector3d;
 
 /// ============================================================================
+std::string BundleAdjuster::Repr() const {
+  return fmt::format("BundleAdjuster(cfg={})", cfg_.Repr());
+}
+
+AdjustStatus BundleAdjuster::Adjust(KeyframePtrSpan keyframes,
+                                    const Camera& camera,
+                                    int gsize) {
+  AdjustStatus status{};
+
+  const auto num_kfs = static_cast<int>(keyframes.size());
+  CHECK_GE(num_kfs, 2) << "Need more than 2 keyframes for adjustment";
+  VLOG(1) << "- num kfs: " << num_kfs;
+  const auto num_points = PointsInfoGe(keyframes, DepthPoint::kMinInfo);
+  VLOG(1) << "- num points: " << num_points;
+  const auto init_level = cfg_.optm.GetInitLevel(keyframes.back()->levels());
+  VLOG(1) << "- init levels: " << init_level;
+  const auto block_size = block_.MapFull(num_kfs, num_points);
+  VLOG(1) << "- block size: " << block_size;
+  const auto schur_size = schur_.MapFrames(num_kfs);
+  VLOG(1) << "- schur size: " << schur_size;
+
+  for (int level = init_level; level >= 0; --level) {
+    const auto status_l = AdjustLevel(keyframes, camera, level, gsize);
+    status.Accumulate(status_l);
+  }
+
+  // Update kf status info and linearization point
+  for (auto* pkf : keyframes) {
+    pkf->UpdateStatusInfo();
+  }
+
+  status.num_kfs = num_kfs;
+  status.num_points = num_points;
+  return status;
+}
+
+AdjustStatus BundleAdjuster::AdjustLevel(KeyframePtrSpan keyframes,
+                                         const Camera& camera,
+                                         int level,
+                                         int gsize) {
+  VLOG(2) << fmt::format("=== Level {} ===", level);
+
+  const auto dim_frame = cfg_.cost.GetFrameDim();
+  VLOG(2) << "-- dim frame: " << dim_frame;
+
+  const auto num_levels = keyframes.front()->levels();
+
+  AdjustStatus status;
+  status.num_kfs = keyframes.size();
+  status.num_levels = 1;
+  status.num_points = pranges_.back().end;
+
+  double xs_prev = 1e10;
+  const auto xs_stop = cfg_.optm.max_xs * std::pow(2.0, level);
+  const auto max_iters = cfg_.optm.max_iters;
+
+  for (int iter = 0; iter < max_iters; ++iter) {
+    block_.ResetFull();
+
+    BuildLevel(keyframes, camera, level, gsize);
+
+    if (block_.num_costs() < dim_frame * block_.num_frames() * 5) {
+      VLOG(2) << LogIter({level, num_levels},
+                         {iter, max_iters},
+                         {block_.num_costs(), block_.cost()});
+      VLOG(1) << fmt::format("=== Level {} not enough costs {}", level, status);
+      return status;
+    }
+
+    const auto xs_max = Solve(!cfg_.cost.stereo, gsize);
+
+    status.good_iters += (xs_max <= xs_prev);
+    xs_prev = xs_max;
+    Update(keyframes, gsize);
+
+    VLOG(2) << LogIter({level, num_levels},
+                       {iter, max_iters},
+                       {block_.num_costs(), block_.cost()},
+                       {xs_max, xs_stop},
+                       block_.xp.squaredNorm() / block_.num_frames());
+
+    ++status.num_iters;
+    status.cost = block_.cost();
+    status.num_costs = block_.num_costs();
+
+    // converged
+    if (xs_max < xs_stop && iter > 1) {
+      status.converged = true;
+      break;
+    }
+  }  // iter
+
+  VLOG(1) << LogConverge(level, status);
+  return status;
+}
+
+void BundleAdjuster::Marginalize(KeyframePtrSpan keyframes,
+                                 const Camera& camera,
+                                 int kf_ind,
+                                 int gsize) {
+  // Pre-conditions
+  // 1. must have at least 2 kfs
+  const auto num_kfs = static_cast<int>(keyframes.size());
+  CHECK_GE(kf_ind, 0);
+  CHECK_LT(kf_ind, num_kfs);
+  CHECK_GE(num_kfs, 2);
+
+  VLOG(1) << "- Marg kf: " << kf_ind;
+  // Only marginalize points with Ok info, discard rest
+  const auto num_points = PointsInfoGe(keyframes, DepthPoint::kOkInfo);
+  const auto block_size = block_.MapFull(num_kfs, num_points);
+  const auto schur_size = schur_.MapFrames(num_kfs);
+
+  VLOG(1) << "- block size: " << block_size;
+  VLOG(1) << "- schur size: " << schur_size;
+
+  // Construct hessian with residuals that depend only on the kf to be marged
+  // and all points in it (at full resolution level 0)
+  block_.ResetFull();
+  std::mutex mtx;
+  BuildLevelKf(keyframes, camera, /*level*/ 0, kf_ind, mtx, gsize);
+  VLOG(1) << "- block diag: " << block_.DiagSum();
+  const auto& prange = pranges_.at(kf_ind);
+
+  // 2. Marginalize all points in frame kf_ind, discard residuals that would
+  // affect the sparsity pattern (this was actually done in the previous step,
+  // where we ignore Hessian blocks originate from points in keyframes other
+  // than the one to be removed)
+  // Schur will be modified directly so no need to reset
+  block_.MargPointsRange(schur_, prange, gsize);
+  VLOG(1) << "- points marged: " << schur_.n;
+
+  // 3. If there exists a previous prior, we add it to the current schur
+  if (prior_.Ok()) {
+    schur_.AddPriorHess(prior_);
+  }
+
+  // 4. We then marginalize keyframe kf_ind to form a new prior
+  const auto prior_size = prior_.MapFrames(num_kfs - 1);
+  VLOG(1) << "- prior size: " << prior_size;
+  schur_.MargFrame(prior_, kf_ind);
+}
+
+void BundleAdjuster::BuildLevel(KeyframePtrSpan keyframes,
+                                const Camera& camera,
+                                int level,
+                                int gsize) {
+  const auto camera_scaled = camera.AtLevel(level);
+  const auto num_kfs = static_cast<int>(keyframes.size());
+
+  // NOTE: each cost function will connect two frames and one point, so ideally
+  // we could process each frame in parallel. This is because the point hessian
+  // of each frame is disjoint so it's ok to modify it from multiple threads as
+  // long as each thread is looking at a different frame (thus different set of
+  // points). However, if there are more than two keyframes, then the returned
+  // FrameHessian2 cannot be easily reduced since they have different blocks.
+  // Therefore, we have to protect the FullBlockHessian with a mutex and update
+  // it when we get a final FrameHessian2. We only need to lock a few times (n *
+  // (n-1)), thus the mutex is not highly-contended, but the extra
+  // parallelization improves cpu utilization and reduce runtime by ~20% so we
+  // will keep it unless there is a problem later.
+
+  std::mutex mtx;
+  ParallelFor({0, num_kfs, gsize}, [&](int k0) {
+    BuildLevelKf(keyframes, camera_scaled, level, k0, mtx, gsize);
+  });
+}
+
+void BundleAdjuster::BuildLevelKf(KeyframePtrSpan keyframes,
+                                  const Camera& camera,
+                                  int level,
+                                  int k0,
+                                  std::mutex& mtx,
+                                  int gsize) {
+  // This will make points converge a bit faster
+  // allows point info decrease by half of max - ok per level
+  //  const auto dinfo = (DepthPoint::kMaxInfo - DepthPoint::kOkInfo) /
+  //                     (2 * (level + 1.0) * cfg_.solve.max_iters);
+  const auto dinfo =
+      2.0 / (DepthPoint::kMaxInfo - DepthPoint::kOkInfo) / (level + 1.0);
+  const auto num_kfs = static_cast<int>(keyframes.size());
+  const auto& kf0 = GetKfAt(keyframes, k0);
+
+  for (int k1 = 0; k1 < num_kfs; ++k1) {
+    // Skip the case when looking at the same frame, note that this also
+    // prevents us from projecting left to right in the same frame in
+    // stereo version.
+    if (k0 == k1) continue;
+
+    const auto& kf1 = GetKfAt(keyframes, k1);
+    const auto& points0 = kf0.points();
+    const auto& patches0 = kf0.patches().at(level);
+    const AdjustCost cost(
+        level, camera, kf0, kf1, {k0, k1}, block_, cfg_.cost, dinfo);
+    const auto hess01 = cost.Build(points0, patches0, gsize);
+    // lock hess, this only gets called O(n^2) times
+    std::scoped_lock lock{mtx};
+    block_.AddFrameHess(hess01);
+  }
+}
+
+double BundleAdjuster::Solve(bool fix_scale, int gsize) {
+  CHECK(block_.Ok()) << block_.Repr();
+  CHECK_EQ(block_.num_frames(), schur_.num_frames());
+
+  // 1. Invert Hmm and make Hpp symmetric
+  block_.Prepare();
+
+  // 2. Marginalize all points
+  block_.MargPointsAll(schur_, gsize);
+  VLOG(3) << "--- marg points: " << schur_.num_costs();
+  VLOG(3) << "--- schur diag before prior: " << schur_.DiagSum();
+
+  constexpr double large = 1e16;
+  constexpr double medium = 1e8;
+  constexpr double small = 1e4;
+
+  // 3. Add prior or fix gauge manually
+  if (prior_.Ok()) {
+    // We have a prior, so we add it to schur
+    schur_.AddPriorHess(prior_);
+    // However we also add a small fix to the first frame pose just in case
+    schur_.AddDiag(0, Dim::kPose, medium);
+  } else {
+    // We don't have a prior, this could either due to not enabling marg or when
+    // window is not filled at the beginning of the sequence. We thus manually
+    // fix the gauge of the first frame
+    schur_.AddDiag(0, Dim::kPose, large);
+
+    // In mono mode we also need to fix translational scale
+    // TODO (dsol): or just the largest translational direction
+    if (fix_scale) {
+      schur_.AddDiag(Dim::kFrame + 3, 3, large);
+    }
+  }
+
+  // 4. Regularize affine parameters
+  // We need to fix the left affine params of the first frame, and put a small
+  // penalty on the rest of the affine parameters
+  for (int i = 0; i < schur_.num_frames(); ++i) {
+    const int ai = i * Dim::kFrame + Dim::kPose;
+    if (i == 0) {
+      schur_.AddDiag(ai, Dim::kAffine, large);
+      schur_.AddDiag(ai + Dim::kAffine, Dim::kAffine, small);
+    } else {
+      schur_.AddDiag(ai, Dim::kAffine * 2, small);
+    }
+  }
+
+  // 5. Solve for xp and xm
+  y_.resize(schur_.dim_frames());
+  VectorXdMap yp(y_.data(), schur_.dim_frames());
+  schur_.Solve(block_.xp, yp);
+  block_.Solve();
+
+  // 6. compute max_xs
+  const int last_dim = block_.dim_frames() - Dim::kStereo;
+  const auto xs_max = yp.tail(last_dim).array().abs().maxCoeff();
+  return xs_max;
+}
+
+void BundleAdjuster::Update(KeyframePtrSpan keyframes, int gsize) {
+  ParallelFor({0, static_cast<int>(keyframes.size()), gsize}, [&](int k) {
+    Keyframe& kf = *keyframes.at(k);
+    kf.UpdateState(block_.XpAt(k));
+    kf.UpdatePoints(block_.xm, gsize);
+  });
+}
+
+int BundleAdjuster::PointsInfoGe(KeyframePtrSpan keyframes, double min_info) {
+  const auto num_kfs = static_cast<int>(keyframes.size());
+  pranges_.resize(num_kfs);
+
+  int hid = 0;
+  // Assign a hessian index to each good point
+  for (int k = 0; k < num_kfs; ++k) {
+    auto& kf = GetKfAt(keyframes, k);
+
+    // We need to remember the start and end hid of each frame
+    auto& hrg = pranges_.at(k);
+    hrg.start = hid;
+
+    // hid determines whether a point will be used in this round of adjustment
+    // we will update point.info during the process, but hid remains the same,
+    // so even if info goes < 0, as long as hid is valid, this point will still
+    // participate in this round of bundle adjustment
+    for (auto& point : kf.points()) {
+      if (point.info() >= min_info) {
+        CHECK(point.PixelOk());
+        CHECK(point.DepthOk());
+        point.hid = hid++;
+      } else {
+        point.hid = FramePoint::kBadHid;
+      }
+    }
+    hrg.end = hid;
+    VLOG(1) << fmt::format("-- kf {} has {} points, [{:>4}, {:>4})",
+                           k,
+                           hrg.size(),
+                           hrg.start,
+                           hrg.end);
+  }  // k
+
+  CHECK_GT(hid, 0);
+  return hid;
+}
+
+size_t BundleAdjuster::Allocate(int max_frames, int max_points_per_frame) {
+  // it is very unlikely we will use max_points_per_frame, thus we reserve
+  // reduced size
+  block_.ReserveFull(max_frames, max_points_per_frame * max_frames);
+  schur_.ReserveData(max_frames);
+  prior_.ReserveData(max_frames - 1);
+
+  return (block_.capacity() + schur_.capacity() + prior_.capacity()) *
+         sizeof(double);
+}
+
+/// ============================================================================
 AdjustCost::AdjustCost(int level,
                        const Camera& camera_scaled,
                        const Keyframe& kf0,
@@ -24,9 +343,7 @@ AdjustCost::AdjustCost(int level,
       ij{iandj},
       pblock{CHECK_NOTNULL(&block)},
       dinfo{delta_info} {
-  const auto ep0 = kf0.GetEvaluationPoint();
-  const auto ep1 = kf1.GetEvaluationPoint();
-  ExtractState(ep0, ep1, T10, eas, bs);
+  ExtractState(kf0.state(), kf1.state(), T10, eas, bs);
   const auto fe0 = kf0.GetFirstEstimate();
   const auto fe1 = kf1.GetFirstEstimate();
   ExtractState(fe0, fe1, T10_fej, eas_fej, bs_fej);
@@ -54,7 +371,7 @@ FrameHessian2 AdjustCost::Build(const FramePointGrid& points0,
           const auto& patch0 = patches0.at(gr, gc);
           if (patch0.Bad()) continue;
 
-          // res is -1 for outlier, 0 for oob and 1 for inlier
+          // res is <0 for outlier, 0 for oob and >0 for inlier
           const auto res = WarpPatch(patch0, point0, hess_ij);
 
           point0.UpdateInfo(res * dinfo);
@@ -63,9 +380,9 @@ FrameHessian2 AdjustCost::Build(const FramePointGrid& points0,
       std::plus<>{});
 }
 
-int AdjustCost::WarpPatch(const Patch& patch0,
-                          const FramePoint& point0,
-                          FrameHessian2& hess01) const noexcept {
+double AdjustCost::WarpPatch(const Patch& patch0,
+                             const FramePoint& point0,
+                             FrameHessian2& hess01) const noexcept {
   // First construct all uvs of this patch
   const auto uv0 = ScaleUv(point0.uv(), camera.scale());
   const auto uv0s = (Patch::offsets().colwise() + uv0).eval();
@@ -90,29 +407,32 @@ int AdjustCost::WarpPatch(const Patch& patch0,
   // If its projection is bad (OOB or depth too small), we maintain its info
   // If it is being used in UpdateHessian, we increase its info
   // If it is considered an outlier during UpdateHessian, we decrease its info
-  int res = 0;
+  double res = 0.0;
   if (!(z1 > cfg.min_depth)) return res;
+
+  constexpr double res_offset = 0.4;
 
   Patch patch1;
 
   // If no OOB, we update hessian for this patch
-  if (!Patch::IsAnyOut(gray1l, px1s)) {
+  if (!Patch::IsAnyOut(gray1l, px1s, 2)) {
     patch1.ExtractFast(gray1l, px1s);
 
-    // Left image cam_ind = 0
+    // Left cam_ind = 0
     const auto good = UpdateHess(patch0, point0, patch1, pt1, hess01, 0);
-    res = good ? 1 : -1;
+    res += static_cast<double>(good) - res_offset;
   }
 
   if (cfg.stereo) {
-    ApplyDisp(uv1s, pt1s.row(2).array(), q0);
+    ApplyDisp(uv1s, q0 / pt1s.row(2).array());
 
     // Check for OOB
-    if (!Patch::IsAnyOut(gray1r, px1s)) {
+    if (!Patch::IsAnyOut(gray1r, px1s, 2)) {
       // Extract pixel intensity from right image, can reuse storage
       patch1.ExtractFast(gray1r, px1s);
-      // Right image cam_ind = 1
-      UpdateHess(patch0, point0, patch1, pt1, hess01, 1);
+      // Right cam_ind = 1
+      const auto good = UpdateHess(patch0, point0, patch1, pt1, hess01, 1);
+      res += static_cast<double>(good) - res_offset;
     }
   }
 
@@ -186,9 +506,10 @@ bool AdjustCost::UpdateHess(const Patch& patch0,
   const ArrayKd gs2 = patch1.GradSqNorm();
 
   // Check for number of outliers
-  if (IsWarpBad(gs2, rs2)) return false;
+  const auto no = GetNumOutliers(gs2, rs2);
+  if (no > cfg.max_outliers) return false;
 
-  //  const auto wi = static_cast<int>(point0.InfoMax()) + 1;
+  // const auto wi = FastPoint5Pow(no);
   const auto ws = CalcWeight(gs2, rs2);
   const auto It = patch1.gxys().eval();
 
@@ -204,18 +525,18 @@ bool AdjustCost::UpdateHess(const Patch& patch0,
     const ArrayKd v0as_fej = e_a1ma0_fej * (patch0.vals - bs_fej[0]);
     // dr_da0 = e^(a1 - a0) * (v0 - b0) = v0a
     // dr_db0 = e^(a1 - a0)
-    // A0t.row(0) = v0as_fej;
-    // A0t.row(1).setConstant(e_a1ma0_fej);
-    A0t.row(0).setZero();
-    A0t.row(1).setOnes();
+    A0t.row(0) = v0as_fej;
+    A0t.row(1).setConstant(e_a1ma0_fej);
+    // A0t.row(0).setZero();
+    // A0t.row(1).setOnes();
 
     Patch::Matrix2Kd A1t;
     // dr_da1 = -e^(a1 - a0) * (v0 - b0) = -v0a
     // dr_db1 = -1
-    // A1t.row(0) = -v0as_fej;
-    // A1t.row(1).setConstant(-1);
-    A1t.row(0).setZero();
+    A1t.row(0) = -v0as_fej;
     A1t.row(1).setConstant(-1);
+    // A1t.row(0).setZero();
+    // A1t.row(1).setConstant(-1);
 
     ph.SetA(It, A0t, A1t, rs, ws);
   }
@@ -227,243 +548,6 @@ bool AdjustCost::UpdateHess(const Patch& patch0,
   pblock->AddPatchHess(ph, Js.du1_dx0, Js.du1_dx1, Js.du1_dq0, ijh, aff);
 
   return true;
-}
-
-/// ============================================================================
-std::string BundleAdjuster::Repr() const {
-  return fmt::format("BundleAdjuster(cfg={})", cfg_.Repr());
-}
-
-AdjustStatus BundleAdjuster::Adjust(KeyframePtrSpan keyframes,
-                                    const Camera& camera,
-                                    int gsize) {
-  return AdjustImpl(keyframes, camera, cfg_.solve, cfg_.cost, gsize);
-}
-
-AdjustStatus BundleAdjuster::AdjustImpl(KeyframePtrSpan keyframes,
-                                        const Camera& camera,
-                                        const DirectSolveCfg& solve_cfg,
-                                        const DirectCostCfg& cost_cfg,
-                                        int gsize) {
-  AdjustStatus status{};
-
-  const auto num_kfs = static_cast<int>(keyframes.size());
-  CHECK_GE(num_kfs, 2) << "Need more than 2 keyframes for adjustment";
-  VLOG(1) << "- num kfs: " << num_kfs;
-  const auto num_points = PointsInfoGe(keyframes, DepthPoint::kMinInfo);
-  VLOG(1) << "- num points: " << num_points;
-  const auto num_levels = solve_cfg.GetNumLevels(keyframes.back()->levels());
-  VLOG(1) << "- num levels: " << num_levels;
-  const auto block_size = block_.MapFull(num_kfs, num_points);
-  VLOG(1) << "- block size: " << block_size;
-  const auto schur_size = schur_.MapFrames(num_kfs);
-  VLOG(1) << "- schur size: " << schur_size;
-
-  for (int level = num_levels - 1; level >= 0; --level) {
-    VLOG(2) << "=== Level " << level;
-
-    for (int iter = 0; iter < solve_cfg.max_iters; ++iter) {
-      block_.ResetFull();
-
-      BuildLevel(keyframes, camera, level, gsize);
-      Solve(!cost_cfg.stereo, gsize);
-      Update(keyframes, gsize);
-
-      if (OnIterEnd(status,
-                    level,
-                    iter,
-                    block_.num(),
-                    block_.cost(),
-                    block_.xp.squaredNorm() / num_kfs)) {
-        break;
-      }
-    }  // iter
-  }    // level
-
-  // Update kf status info and linearization point
-  for (auto* pkf : keyframes) {
-    pkf->UpdateStatusInfo();
-    pkf->UpdateLinearizationPoint();
-  }
-
-  status.num_kfs = num_kfs;
-  status.num_points = num_points;
-  status.num_levels = num_levels;
-  status.max_iters = solve_cfg.max_iters * num_levels;
-  return status;
-}
-
-void BundleAdjuster::Marginalize(KeyframePtrSpan keyframes,
-                                 const Camera& camera,
-                                 int kf_ind,
-                                 int gsize) {
-  // Pre-conditions
-  // 1. must have at least 2 kfs
-  const auto num_kfs = static_cast<int>(keyframes.size());
-  CHECK_GE(kf_ind, 0);
-  CHECK_LT(kf_ind, num_kfs);
-  CHECK_GE(num_kfs, 2);
-
-  VLOG(1) << "- Marg kf: " << kf_ind;
-  // Only marginalize points with Ok info, discard rest
-  const auto num_points = PointsInfoGe(keyframes, DepthPoint::kOkInfo);
-  const auto block_size = block_.MapFull(num_kfs, num_points);
-  const auto schur_size = schur_.MapFrames(num_kfs);
-
-  VLOG(1) << "- block size: " << block_size;
-  VLOG(1) << "- schur size: " << schur_size;
-
-  // Construct hessian with residuals that depend only on the kf to be marged
-  // and all points in it at full resolution
-  block_.ResetFull();
-  std::mutex mtx;
-  BuildLevelKf(keyframes, camera, /*level*/ 0, kf_ind, mtx, gsize);
-  VLOG(1) << "- block diag: " << block_.DiagSum();
-  const auto& prange = pranges_.at(kf_ind);
-
-  // 2. Marginalize all points in frame k, discard residual that would affect
-  // the sparsity pattern (this was actually done in the previous step, where we
-  // ignore Hessian blocks originated from points in frames other than k)
-  // Schur will be modified so no need to reset
-  block_.MargPointsRange(schur_, prange, gsize);
-  VLOG(1) << "- points marged: " << schur_.n;
-
-  // 3. If there exists a previous prior, we add it to the current schur
-  if (prior_.Ok()) {
-    schur_.AddPriorHess(prior_);
-  }
-
-  // 4. We then marginalize frame k to form a new prior
-  const auto prior_size = prior_.MapFrames(num_kfs - 1);
-  VLOG(1) << "- prior size: " << prior_size;
-  schur_.MargFrame(prior_, kf_ind);
-}
-
-void BundleAdjuster::BuildLevel(KeyframePtrSpan keyframes,
-                                const Camera& camera,
-                                int level,
-                                int gsize) {
-  const auto camera_scaled = camera.AtLevel(level);
-  const auto num_kfs = static_cast<int>(keyframes.size());
-
-  // NOTE: each cost function will connect two frames and one point, so ideally
-  // we could process each frame in parallel. This is because the point hessian
-  // of each frame is disjoint so it's ok to modify it from multiple threads as
-  // long as each thread is looking at a different frame (thus different set of
-  // points). However, if there are more than two keyframes, then the returned
-  // FrameHessian2 cannot be easily reduced since they have different blocks.
-  // Therefore, we have to protect the FullBlockHessian with a mutex and update
-  // it when we get a final FrameHessian2. We only need to lock a few times (n *
-  // (n-1)), thus the mutex is not highly-contended, but the extra
-  // parallelization improves cpu utilization and reduce runtime by ~20% so we
-  // will keep it unless there is a problem later.
-
-  std::mutex mtx;
-  ParallelFor({0, num_kfs, gsize}, [&](int k0) {
-    BuildLevelKf(keyframes, camera_scaled, level, k0, mtx, gsize);
-  });
-}
-
-void BundleAdjuster::BuildLevelKf(KeyframePtrSpan keyframes,
-                                  const Camera& camera,
-                                  int level,
-                                  int k0,
-                                  std::mutex& mtx,
-                                  int gsize) {
-  //  const auto dinfo = 1.0 / cfg_.solve.max_iters / (level + 1.0);
-  // This will make points converge a bit faster
-  const auto dinfo =
-      2.0 / (DepthPoint::kMaxInfo - DepthPoint::kOkInfo) / (level + 1.0);
-  const auto num_kfs = static_cast<int>(keyframes.size());
-  const auto& kf0 = GetKfAt(keyframes, k0);
-
-  for (int k1 = 0; k1 < num_kfs; ++k1) {
-    // Skip the case when looking at the same frame, note that this also
-    // prevents us from projecting left to right in the same frame in
-    // stereo version.
-    if (k0 == k1) continue;
-
-    const auto& kf1 = GetKfAt(keyframes, k1);
-    const auto& points0 = kf0.points();
-    const auto& patches0 = kf0.patches().at(level);
-    const AdjustCost cost(
-        level, camera, kf0, kf1, {k0, k1}, block_, cfg_.cost, dinfo);
-    const auto hess01 = cost.Build(points0, patches0, gsize);
-    // lock hess, this only gets called O(n^2) times
-    std::scoped_lock lock{mtx};
-    block_.AddFrameHess(hess01);
-  }
-}
-
-void BundleAdjuster::Solve(bool fix_scale, int gsize) {
-  CHECK(block_.Ok()) << block_.Repr();
-  const auto num_kfs = block_.num_frames();
-  CHECK_EQ(num_kfs, schur_.num_frames());
-
-  // 1. Invert Hmm and make Hpp symmetric
-  block_.Prepare();
-
-  // 2. Marginalize all points
-  block_.MargPointsAll(schur_, gsize);
-  VLOG(3) << "--- marg points: " << schur_.num();
-  VLOG(3) << "--- schur diag before prior: " << schur_.DiagSum();
-
-  constexpr double large = 1e16;
-  constexpr double medium = 1e8;
-  constexpr double small = 1e4;
-
-  // 3. Add prior or fix gauge manually
-  if (prior_.Ok()) {
-    // We have a prior, so we add it to schur
-    schur_.AddPriorHess(prior_);
-    // However we also add a small fix to the first frame pose just in case
-    schur_.AddDiag(0, Dim::kPose, medium);
-  } else {
-    // We don't have a prior, this could either due to not enabling marg or when
-    // window is not filled at the beginning of the sequence. We thus manually
-    // fix the gauge of the first frame and/or scale
-    schur_.AddDiag(0, Dim::kPose, large);
-
-    // In mono mode we also need to fix translational scale
-    if (fix_scale) {
-      schur_.AddDiag(Dim::kFrame + 3, 3, large);
-    }
-  }
-
-  // 4. Regularize affine parameters
-  // We need to fix the left affine params of the first frame, and put a small
-  // penalty on the rest of the affine parameters
-  for (int i = 0; i < num_kfs; ++i) {
-    const int ia = i * Dim::kFrame + Dim::kPose;
-    if (i == 0) {
-      schur_.AddDiag(ia, Dim::kAffine, large);
-      schur_.AddDiag(ia + Dim::kAffine, Dim::kAffine, small);
-    } else {
-      schur_.AddDiag(ia, Dim::kAffine * 2, small);
-    }
-  }
-
-  // 5. Solve for xp and xm
-  block_.Solve(schur_);
-}
-
-void BundleAdjuster::Update(KeyframePtrSpan keyframes, int gsize) {
-  ParallelFor({0, static_cast<int>(keyframes.size()), gsize}, [&](int k) {
-    Keyframe& kf = *keyframes.at(k);
-    kf.UpdateState(block_.XpAt(k));
-    kf.UpdatePoints(block_.xm, gsize);
-  });
-}
-
-size_t BundleAdjuster::Allocate(int max_frames, int max_points_per_frame) {
-  // it is very unlikely we will use max_points_per_frame, thus we reserve
-  // reduced size
-  block_.ReserveFull(max_frames, max_points_per_frame * max_frames);
-  schur_.ReserveData(max_frames);
-  prior_.ReserveData(max_frames - 1);
-
-  return (block_.capacity() + schur_.capacity() + prior_.capacity()) *
-         sizeof(double);
 }
 
 }  // namespace sv::dsol

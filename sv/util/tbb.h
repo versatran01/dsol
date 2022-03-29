@@ -10,7 +10,7 @@ namespace sv {
 struct BlockedRange {
   BlockedRange() = default;
   BlockedRange(int begin, int end, int gsize)
-      : begin_{begin}, end_{end}, gsize_{gsize <= 0 ? end : gsize} {}
+      : begin_{begin}, end_{end}, gsize_{gsize <= 0 ? end - begin : gsize} {}
   int begin_{};
   int end_{};
   int gsize_{};

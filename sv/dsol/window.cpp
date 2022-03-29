@@ -62,8 +62,8 @@ KeyframeStatus KeyframeWindow::RemoveKeyframeAt(int i) {
   // Imagine we have 3 valid kfs [0, 1, 2] and we remove 1 (p points at 3)
   //     x     p
   // [0, 1, 2, 3, 4]
-  // after rotate we have [0, 2] and 1 should be a t the end
-  //        p
+  // after rotate we have [0, 2] and 1 should be at the end
+  //        p     x
   // [0, 2, 3, 4, 1]
   // std::rotate(first, new_first, last)
   std::rotate(ptrs_.begin() + i, ptrs_.begin() + i + 1, ptrs_.end());

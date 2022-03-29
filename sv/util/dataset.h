@@ -208,10 +208,10 @@ class StereoFolder final : public DatasetBase {
   inline static const std::vector<std::string> kDtypes = {DataType::kImage,
                                                           DataType::kIntrin};
 
-  explicit StereoFolder(const std::string& name,
-                        const std::string& left_dir,
-                        const std::string& right_dir,
-                        const std::string& calib_file);
+  StereoFolder(const std::string& name,
+               const std::string& left_dir,
+               const std::string& right_dir,
+               const std::string& calib_file);
   static StereoFolder Create(const std::string& data_name,
                              const std::string& data_dir,
                              const std::string& left_name,

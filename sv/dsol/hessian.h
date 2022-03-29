@@ -18,7 +18,8 @@ struct PatchHessian {
 
   Matrix2d ItI{Matrix2d::Zero()};  // It * I
   Vector2d Itr{Vector2d::Zero()};  // It * r
-  double r2{};                     //  r * r
+  double r2{};                     // r * r
+  double wr2{};                    // w * r * r
 
   /// @brief Add only the intensity part
   void AddI(const Vector2d& It, double r, double w) noexcept;
@@ -78,17 +79,14 @@ struct PatchHessian2 final : public PatchHessian {
 
 /// @brief Base frame Hessian, contains types, dimension info, num and costs
 struct FrameHessian {
-  using VectorFd = MatrixMNd<Dim::kFrame, 1>;
-  using MatrixFd = MatrixMNd<Dim::kFrame, Dim::kFrame>;
+  using Vector10d = MatrixMNd<Dim::kFrame, 1>;
+  using Matrix10d = MatrixMNd<Dim::kFrame, Dim::kFrame>;
   using Matrix26d = MatrixMNd<2, Dim::kPose>;
 
-  using VectorFdMap = Eigen::Map<VectorFd>;
-  using VectorFdCMap = Eigen::Map<const VectorFd>;
-
   int n{};     // num costs
-  double c{};  // accumulated cost (r^2)
+  double c{};  // cost (r^2)
 
-  int num() const noexcept { return n; }
+  int num_costs() const noexcept { return n; }
   double cost() const noexcept { return c; }
   bool Ok() const noexcept { return n > 0; }
   double MeanCost() const noexcept { return c / n; }
@@ -106,8 +104,8 @@ struct FrameHessian {
 /// We keep the lower-triangular part, according to
 /// https://eigen.tuxfamily.org/dox/classEigen_1_1LLT.html
 struct FrameHessian1 final : public FrameHessian {
-  MatrixFd H{MatrixFd::Zero()};  // lhs:  Jt*W*J
-  VectorFd b{VectorFd::Zero()};  // rhs: -Jt*W*r
+  Matrix10d H{Matrix10d::Zero()};  // lhs:  Jt*W*J
+  Vector10d b{Vector10d::Zero()};  // rhs: -Jt*W*r
 
   /// @brief Operator +/+=
   FrameHessian1& operator+=(const FrameHessian1& rhs) noexcept;
@@ -121,10 +119,6 @@ struct FrameHessian1 final : public FrameHessian {
   void AddPatchHess(const PatchHessian1& ph,
                     const Matrix26d& G,
                     int affine_offset) noexcept;
-
-  /// @brief Solve this problem using Cholesky decomposition
-  /// @param dim is the first n dims to solve
-  bool Solve(VectorFd& x, int dim) const;
 };
 
 /// @brief Two frames hessian, used in adjuster
@@ -140,11 +134,11 @@ struct FrameHessian2 final : public FrameHessian {
   int i_{-1};
   int j_{-1};
 
-  MatrixFd Hii{MatrixFd::Zero()};
-  MatrixFd Hij{MatrixFd::Zero()};
-  MatrixFd Hjj{MatrixFd::Zero()};
-  VectorFd bi{VectorFd::Zero()};
-  VectorFd bj{VectorFd::Zero()};
+  Matrix10d Hii{Matrix10d::Zero()};
+  Matrix10d Hij{Matrix10d::Zero()};
+  Matrix10d Hjj{Matrix10d::Zero()};
+  Vector10d bi{Vector10d::Zero()};
+  Vector10d bj{Vector10d::Zero()};
 
   FrameHessian2() = default;
   FrameHessian2(int fi, int fj);
@@ -231,7 +225,7 @@ struct SchurFrameHessian final : public FrameHessianX {
   void AddPriorHess(const PriorFrameHessian& prior);
 
   /// @brief Solve for frame parameters
-  void Solve(VectorXdRef xp);
+  void Solve(VectorXdRef xp, VectorXdRef yp);
 
   /// @brief Marginalize frame
   void MargFrame(PriorFrameHessian& prior, int fid);
@@ -282,8 +276,8 @@ struct FramePointHessian final : public FrameHessianX {
   int num_points() const noexcept { return dim_points() / kPointDim; }
 
   /// @brief Block of frame i in xp
-  Eigen::Map<const VectorFd> XpAt(int i) const noexcept;
-  Eigen::Map<VectorFd> XpAt(int i) noexcept;
+  Eigen::Map<const Vector10d> XpAt(int i) const noexcept;
+  Eigen::Map<Vector10d> XpAt(int i) noexcept;
 
   /// @brief Reset storage and state
   void ResetFull(double Hpp_diag = 0.0) noexcept;
@@ -305,7 +299,7 @@ struct FramePointHessian final : public FrameHessianX {
   /// @brief Invert Hmm and make Hpp symmetric
   void Prepare();
   /// @brief Solve for frames and points
-  void Solve(SchurFrameHessian& schur);
+  void Solve();
 
   /// @brief Marginalize points (all or single frame)
   int MargPointsAll(SchurFrameHessian& schur, int gsize = 0) const;

@@ -15,12 +15,13 @@ ABSL_FLAG(bool, vis, true, "visualization");
 ABSL_FLAG(int32_t, index, 0, "dataset index");
 ABSL_FLAG(std::string,
           dir,
-          // "/home/chao/Workspace/dataset/vkitti/Scene01/clone",
-          "/home/chao/Workspace/dataset/tartan_air/office2/Easy/P000",
+          "/home/chao/Workspace/dataset/vkitti/Scene01/clone",
+          // "/home/chao/Workspace/dataset/tartan_air/office2/Easy/P000",
           "dataset dir");
 
 ABSL_FLAG(int32_t, num_kfs, 1, "num keyframes");
 ABSL_FLAG(int32_t, num_levels, 4, "num pyramid levels");
+ABSL_FLAG(std::string, cm, "plasma", "colormap name");
 
 ABSL_FLAG(int32_t, cell_size, 16, "cell size");
 ABSL_FLAG(int32_t, sel_level, 1, "select level");
@@ -51,15 +52,13 @@ void Run() {
   CHECK(dataset.Ok());
   LOG(INFO) << dataset;
 
-  const int index = absl::GetFlag(FLAGS_index);
-  LOG(INFO) << "index: " << index;
+  PlayCfg play_cfg;
+  play_cfg.index = absl::GetFlag(FLAGS_index);
+  play_cfg.nframes = absl::GetFlag(FLAGS_num_kfs);
+  play_cfg.nlevels = absl::GetFlag(FLAGS_num_levels);
+  LOG(INFO) << play_cfg.Repr();
 
-  const int nlevels = absl::GetFlag(FLAGS_num_levels);
-  LOG(INFO) << "num_levels: " << nlevels;
-
-  const int nkfs = absl::GetFlag(FLAGS_num_kfs);
-
-  PlayData data(dataset, index, nkfs, nlevels, false);
+  PlayData data(dataset, play_cfg);
   const auto& camera = data.camera;
   LOG(INFO) << camera.Repr();
 
@@ -81,9 +80,9 @@ void Run() {
   StereoMatcher matcher{match_cfg};
   LOG(INFO) << matcher.Repr();
 
-  const ColorMap cmap = MakeCmapPlasma();
+  const auto cmap = GetColorMap(absl::GetFlag(FLAGS_cm));
 
-  for (int i = 0; i < nkfs; ++i) {
+  for (int i = 0; i < play_cfg.nframes; ++i) {
     Keyframe kf;
     kf.SetFrame(data.frames.at(i));
 
@@ -94,7 +93,10 @@ void Run() {
     }
     LOG(INFO) << "pixels: " << n_pixels;
 
-    kf.Precompute(selector.pixels(), camera);
+    {
+      auto t = tm.Scoped("InitPoints");
+      kf.InitPoints(selector.pixels(), camera);
+    }
 
     int n_matched{};
     {
@@ -110,6 +112,10 @@ void Run() {
     }
     LOG(INFO) << "n_disps: " << n_disps;
 
+    {
+      auto t = tm.Scoped("InitPatches");
+      kf.InitPatches(tbb);
+    }
     kf.UpdateStatusInfo();
     LOG(INFO) << kf.status().Repr();
 

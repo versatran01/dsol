@@ -16,6 +16,7 @@ namespace sv::dsol {
 using SE3d = Sophus::SE3d;
 namespace gm = geometry_msgs;
 namespace sm = sensor_msgs;
+namespace vm = visualization_msgs;
 
 struct NodeData {
   explicit NodeData(const ros::NodeHandle& pnh);
@@ -24,7 +25,10 @@ struct NodeData {
   void InitRosIO();
   void InitDataset();
 
+  void PublishOdom(const std_msgs::Header& header, const Sophus::SE3d& Twc);
   void PublishCloud(const std_msgs::Header& header) const;
+  void SendTransform(const gm::PoseStamped& pose_msg,
+                     const std::string& child_frame);
   void Run();
 
   bool reverse_{false};
@@ -45,6 +49,7 @@ struct NodeData {
   ros::NodeHandle pnh_;
   ros::Publisher clock_pub_;
   ros::Publisher pose_array_pub_;
+  ros::Publisher align_marker_pub_;
   PosePathPublisher gt_pub_;
   PosePathPublisher kf_pub_;
   PosePathPublisher odom_pub_;
@@ -87,6 +92,7 @@ void NodeData::InitRosIO() {
   odom_pub_ = PosePathPublisher(pnh_, "odom", frame_);
   points_pub_ = pnh_.advertise<sm::PointCloud2>("points", 1);
   pose_array_pub_ = pnh_.advertise<gm::PoseArray>("poses", 1);
+  align_marker_pub_ = pnh_.advertise<vm::Marker>("align_graph", 1);
 }
 
 void NodeData::InitDataset() {
@@ -128,6 +134,7 @@ void NodeData::InitOdom() {
   odom_.matcher = StereoMatcher(ReadStereoCfg({pnh_, "stereo"}));
   odom_.aligner = FrameAligner(ReadDirectCfg({pnh_, "align"}));
   odom_.adjuster = BundleAdjuster(ReadDirectCfg({pnh_, "adjust"}));
+  odom_.cmap = GetColorMap(pnh_.param<std::string>("cm", "jet"));
 
   ROS_INFO_STREAM(odom_.Repr());
 }
@@ -145,6 +152,15 @@ void NodeData::PublishCloud(const std_msgs::Header& header) const {
   points_pub_.publish(cloud);
 }
 
+void NodeData::SendTransform(const geometry_msgs::PoseStamped& pose_msg,
+                             const std::string& child_frame) {
+  gm::TransformStamped tf_msg;
+  tf_msg.header = pose_msg.header;
+  tf_msg.child_frame_id = child_frame;
+  Ros2Ros(pose_msg.pose, tf_msg.transform);
+  tfbr_.sendTransform(tf_msg);
+}
+
 void NodeData::Run() {
   ros::Time time{};
   const auto dt = 1.0 / freq_;
@@ -152,11 +168,14 @@ void NodeData::Run() {
 
   bool init_tf{false};
   SE3d T_c0_w_gt;
-  SE3d T_pred;
+  SE3d dT_pred;
 
   int start_ind = reverse_ ? data_range_.end - 1 : data_range_.start;
   int end_ind = reverse_ ? data_range_.start - 1 : data_range_.end;
   const int delta = reverse_ ? -1 : 1;
+
+  // Marker
+  vm::Marker align_marker;
 
   for (int ind = start_ind, cnt = 0; ind != end_ind; ind += delta, ++cnt) {
     if (!ros::ok() || !ctrl_.Wait()) break;
@@ -171,7 +190,7 @@ void NodeData::Run() {
     auto image_r = dataset_.Get(DataType::kImage, ind, 1);
 
     // Intrin
-    if (!odom_.CameraOk()) {
+    if (!odom_.camera.Ok()) {
       const auto intrin = dataset_.Get(DataType::kIntrin, ind);
       const auto camera = Camera::FromMat({image_l.cols, image_l.rows}, intrin);
       odom_.SetCamera(camera);
@@ -202,13 +221,15 @@ void NodeData::Run() {
 
     // Motion model predict
     if (!motion_.Ok()) {
-      T_pred = motion_.Init(T_c0_c_gt);
+      motion_.Init(T_c0_c_gt);
     } else {
-      T_pred = motion_.Predict(dt);
+      dT_pred = motion_.PredictDelta(dt);
     }
 
+    const auto T_pred = odom_.frame.Twc() * dT_pred;
+
     // Odom
-    const auto status = odom_.Estimate(image_l, image_r, T_pred, depth);
+    const auto status = odom_.Estimate(image_l, image_r, dT_pred, depth);
     ROS_INFO_STREAM(status.Repr());
 
     // Motion model correct if tracking is ok and not first frame
@@ -230,30 +251,47 @@ void NodeData::Run() {
     ROS_DEBUG_STREAM("aff_l: " << odom_.frame.state().affine_l.ab.transpose());
     ROS_DEBUG_STREAM("aff_r: " << odom_.frame.state().affine_r.ab.transpose());
 
+    // publish stuff
     std_msgs::Header header;
     header.frame_id = frame_;
     header.stamp = time;
 
     gt_pub_.Publish(time, T_c0_c_gt);
-    odom_pub_.Publish(time, status.Twc());
+    PublishOdom(header, status.Twc());
+
     if (status.map.remove_kf) {
       PublishCloud(header);
-      kf_pub_.Publish(time, odom_.window.MargKf().Twc());
     }
 
-    // Publish pose array
-    const auto poses = odom_.window.GetAllPoses();
-    gm::PoseArray pose_array_msg;
-    pose_array_msg.header = header;
-    pose_array_msg.poses.resize(poses.size());
-    for (size_t i = 0; i < poses.size(); ++i) {
-      Sophus2Ros(poses.at(i), pose_array_msg.poses.at(i));
-    }
-    pose_array_pub_.publish(pose_array_msg);
+    // Draw align graph
+    //    align_marker.header = header;
+    //    DrawAlignGraph(status.Twc().translation(),
+    //                   odom_.window.GetAllTrans(),
+    //                   odom_.aligner.num_tracks(),
+    //                   CV_RGB(1.0, 0.0, 0.0),
+    //                   0.1,
+    //                   align_marker);
+    //    align_marker_pub_.publish(align_marker);
 
     time += dtime;
   }
 }
+
+void NodeData::PublishOdom(const std_msgs::Header& header,
+                           const Sophus::SE3d& Twc) {
+  const auto odom_pose_msg = odom_pub_.Publish(header.stamp, Twc);
+  SendTransform(odom_pose_msg, "camera");
+
+  const auto poses = odom_.window.GetAllPoses();
+  gm::PoseArray pose_array_msg;
+  pose_array_msg.header = header;
+  pose_array_msg.poses.resize(poses.size());
+  for (size_t i = 0; i < poses.size(); ++i) {
+    Sophus2Ros(poses.at(i), pose_array_msg.poses.at(i));
+  }
+  pose_array_pub_.publish(pose_array_msg);
+}
+
 }  // namespace sv::dsol
 
 int main(int argc, char** argv) {

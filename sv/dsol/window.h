@@ -1,5 +1,7 @@
 #pragma once
 
+#include <absl/container/inlined_vector.h>
+
 #include "sv/dsol/frame.h"
 
 namespace sv::dsol {
@@ -41,7 +43,7 @@ class KeyframeWindow {
   }
 
   /// @brief Clear window
-  void Clear() noexcept { p_ = 0; }
+  void Reset() noexcept { p_ = 0; }
   /// @brief Resize window, does not allocate
   void Resize(int num_kfs) noexcept;
   /// @brief Resize window and allocate keyframes
@@ -85,7 +87,8 @@ class KeyframeWindow {
 
  private:
   int p_{};  // points to one past last frame
-  std::vector<Keyframe*> ptrs_;
+  //  std::vector<Keyframe*> ptrs_;
+  absl::InlinedVector<Keyframe*, 8> ptrs_;
   std::vector<Keyframe> kfs_;
 };
 

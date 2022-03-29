@@ -104,15 +104,15 @@ TEST(PixelTest, TestGradValAtD) {
 }
 
 TEST(PixelTest, TestIsPixOut) {
-  EXPECT_TRUE(IsPixOut<int>({10, 10}, {-1, -1}));
-  EXPECT_TRUE(IsPixOut<int>({10, 10}, {10, 10}));
-  EXPECT_TRUE(!IsPixOut<int>({10, 10}, {0, 0}));
-  EXPECT_TRUE(!IsPixOut<int>({10, 10}, {9, 9}));
+  EXPECT_TRUE(IsPixOut({10, 10}, {-1, -1}));
+  EXPECT_TRUE(IsPixOut({10, 10}, {10, 10}));
+  EXPECT_TRUE(!IsPixOut({10, 10}, {0, 0}));
+  EXPECT_TRUE(!IsPixOut({10, 10}, {9, 9}));
 
-  EXPECT_TRUE(IsPixOut<int>({10, 10}, {0, 0}, 1));
-  EXPECT_TRUE(IsPixOut<int>({10, 10}, {9, 9}, 1));
-  EXPECT_TRUE(!IsPixOut<int>({10, 10}, {1, 1}, 1));
-  EXPECT_TRUE(!IsPixOut<int>({10, 10}, {8, 8}, 1));
+  EXPECT_TRUE(IsPixOut({10, 10}, {0, 0}, 1));
+  EXPECT_TRUE(IsPixOut({10, 10}, {9, 9}, 1));
+  EXPECT_TRUE(!IsPixOut({10, 10}, {1, 1}, 1));
+  EXPECT_TRUE(!IsPixOut({10, 10}, {8, 8}, 1));
 }
 
 TEST(PixelTest, TestScalePix) {

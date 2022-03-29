@@ -6,17 +6,14 @@
 
 namespace sv::dsol {
 
-const Sophus::SE3d& MotionModel::Init(const Sophus::SE3d& T_w_c,
-                                      const Eigen::Vector3d& vel,
-                                      const Eigen::Vector3d& omg) {
+void MotionModel::Init(const Sophus::SE3d& T_w_c,
+                       const Eigen::Vector3d& vel,
+                       const Eigen::Vector3d& omg) {
   T_last_ = T_w_c;
   vel_ = vel;
   omg_ = omg;
   init_ = true;
-  return T_last_;
 }
-
-
 
 void MotionModel::Correct(const Sophus::SE3d& T_w_c, double dt) {
   const auto tf_delta = T_last_.inverse() * T_w_c;
@@ -51,20 +48,20 @@ void TumFormatWriter::Write(int64_t i, const Sophus::SE3d& pose) {
 }
 
 /// ============================================================================
-PlayData::PlayData(
-    const Dataset& dataset, int index, int nframes, int nlevels, bool affine)
-    : frames(nframes), depths(nframes), poses(nframes) {
+PlayData::PlayData(const Dataset& dataset, const PlayCfg& cfg)
+    : frames(cfg.nframes), depths(cfg.nframes), poses(cfg.nframes) {
   const auto tf_c0_w = SE3dFromMat(dataset.Get(DataType::kPose, 0)).inverse();
 
-  for (int k = 0; k < nframes; ++k) {
-    const int i = index + k;
+  for (int k = 0; k < cfg.nframes; ++k) {
+    const int i = cfg.index + k * (cfg.skip + 1);
+    LOG(INFO) << "Reading index: " << i;
 
     // pose
     const auto pose = dataset.Get(DataType::kPose, i);
     const auto tf_w_c = SE3dFromMat(pose);
     const auto tf_c0_c = tf_c0_w * tf_w_c;
 
-    int aff_val = affine ? k : 0;
+    int aff_val = cfg.affine ? k : 0;
 
     // stereo images
     ImagePyramid grays_l;
@@ -75,7 +72,7 @@ PlayData::PlayData(
       }
 
       if (aff_val != 0) image += aff_val;
-      MakeImagePyramid(image, nlevels, grays_l);
+      MakeImagePyramid(image, cfg.nlevels, grays_l);
     }
 
     ImagePyramid grays_r;
@@ -85,7 +82,7 @@ PlayData::PlayData(
         cv::cvtColor(image, image, cv::COLOR_BGR2GRAY);
       }
       if (aff_val != 0) image += aff_val;
-      MakeImagePyramid(image, nlevels, grays_r);
+      MakeImagePyramid(image, cfg.nlevels, grays_r);
     }
 
     AffineModel affm{0, static_cast<double>(aff_val)};
@@ -112,8 +109,8 @@ void InitKfWithDepth(Keyframe& kf,
   }
 
   {
-    auto t = tm.Scoped("Precompute");
-    kf.Precompute(selector.pixels(), camera, gsize);
+    auto t = tm.Scoped("InitPoints");
+    kf.InitPoints(selector.pixels(), camera);
   }
 
   {
@@ -121,7 +118,29 @@ void InitKfWithDepth(Keyframe& kf,
     kf.InitFromDepth(depth);
   }
 
+  {
+    auto t = tm.Scoped("InitPatches");
+    kf.InitPatches(gsize);
+  }
+
   kf.UpdateStatusInfo();
+}
+
+void PlayCfg::Check() const {
+  CHECK_GE(index, 0);
+  CHECK_GT(nframes, 0);
+  CHECK_GE(skip, 0);
+  CHECK_GT(nlevels, 0);
+}
+
+std::string PlayCfg::Repr() const {
+  return fmt::format(
+      "PlayCfg(index={}, nframes={}, skip={}, nlevels={}, affine={})",
+      index,
+      nframes,
+      skip,
+      nlevels,
+      affine);
 }
 
 }  // namespace sv::dsol
