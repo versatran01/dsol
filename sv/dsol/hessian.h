@@ -97,7 +97,7 @@ struct FrameHessian {
   }
 };
 
-/// @brief Single frame hessian (upper triangular), used in aligner
+/// @brief Single frame hessian (lower triangular), used in aligner
 /// Block structure is
 /// [Gt*(It*I)*G, Gt*(It*A)] | [Gt*(It*r)]
 /// [   (At*I)*G,    (At*A)] | [   (At*r)]
