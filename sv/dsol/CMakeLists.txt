@@ -1,7 +1,7 @@
 cc_library(
   NAME dsol_pixel
   HDRS "pixel.h"
-  DEPS sv_base sv_util_log opencv_core Eigen3::Eigen
+  DEPS sv_base opencv_core Eigen3::Eigen
   INTERFACE)
 cc_test(
   NAME dsol_pixel_test
