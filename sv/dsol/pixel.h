@@ -1,14 +1,13 @@
 #pragma once
 
-#include <fmt/color.h>
-#include <glog/logging.h>
+#include <Eigen/Core>
+#include <opencv2/core/mat.hpp>
 
 namespace sv::dsol {
 
-static constexpr double kHalfPix = 0.5;
-
 /// @brief Scale pixel, assume center of top left corner is (0, 0)
 inline cv::Point2d ScalePix(const cv::Point2d& px, double scale) noexcept {
+  constexpr double kHalfPix = 0.5;
   return {scale * (px.x + kHalfPix) - kHalfPix,
           scale * (px.y + kHalfPix) - kHalfPix};
 }
