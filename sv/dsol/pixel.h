@@ -3,9 +3,6 @@
 #include <fmt/color.h>
 #include <glog/logging.h>
 
-#include <Eigen/Core>
-#include <opencv2/core/mat.hpp>
-
 namespace sv::dsol {
 
 static constexpr double kHalfPix = 0.5;
@@ -70,22 +67,6 @@ double ValAtD(const cv::Mat& mat, const cv::Point2d& px) noexcept {
   const int x1i = static_cast<int>(std::ceil(px.x));
   const int y0i = static_cast<int>(std::floor(px.y));
   const int y1i = static_cast<int>(std::ceil(px.y));
-  CHECK(x0i >= 0 && y0i >= 0 && x0i < mat.cols && y0i < mat.rows)
-      << fmt::format("floor px {} {}->{} {}, wh {} {}",
-                     px.x,
-                     px.y,
-                     x0i,
-                     y0i,
-                     mat.cols,
-                     mat.rows);
-  CHECK(x1i >= 0 && y1i >= 0 && x1i < mat.cols && y1i < mat.rows)
-      << fmt::format("ceil px {} {}->{} {}, wh {} {}",
-                     px.x,
-                     px.y,
-                     x1i,
-                     y1i,
-                     mat.cols,
-                     mat.rows);
 
   const double f00 = mat.at<T>(y0i, x0i);
   const double f10 = mat.at<T>(y0i, x1i);
