@@ -363,7 +363,10 @@ DepthPoint AlignCost::WarpPatch(const Patch& patch0,
   // First construct all uvs of this patch
   const auto uv0 = ScaleUv(point0.uv(), camera.scale());
   const auto uv0s = (Patch::offsets().colwise() + uv0).eval();
-
+  
+  // A much better explanation can be found at
+  // https://github.com/symforce-org/symforce/blob/d756d4d2c5dba37f3ae36ebc3fa40ccba8ace5e6/symforce/cam/posed_camera.py#L90
+  
   // VERY IMPORTANT NOTE: The normal warping that uses depth is
   //
   // p1  = R10 * n0 / q0 + t10 -> n1 = Proj(p1)
