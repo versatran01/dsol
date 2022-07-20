@@ -2,6 +2,7 @@
 
 #include <absl/time/clock.h>
 
+#include <chrono>
 #include <cstdint>
 
 namespace sv {
@@ -14,7 +15,13 @@ class Timer {
 
   bool IsRunning() const noexcept { return running_; }
   bool IsStopped() const noexcept { return !running_; }
-  static int64_t NowNs() { return absl::GetCurrentTimeNanos(); }
+  //  static int64_t NowNs() { return absl::GetCurrentTimeNanos(); }
+  static int64_t NowNs() {
+    using namespace std::chrono;
+    return duration_cast<nanoseconds>(
+               high_resolution_clock::now().time_since_epoch())
+        .count();
+  }
 
   /// Start timer, repeated calls to Start() will update the start time
   void Start() {

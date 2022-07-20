@@ -2,10 +2,6 @@
 
 #include <absl/strings/match.h>
 
-#include <functional>
-#include <opencv2/imgproc.hpp>
-
-#include "sv/dsol/pixel.h"
 #include "sv/dsol/viz.h"
 #include "sv/util/logging.h"
 #include "sv/util/ocv.h"
@@ -15,7 +11,7 @@ namespace sv::dsol {
 
 namespace {
 
-WindowTiler tiler{{1920, 1080}, /*offset*/ {400, 500}, /*start*/ {400, 0}};
+WindowTiler tiler;
 PyramidDisplay disp;
 TimerSummary ts{"dsol"};
 StatsSummary ss{"dsol"};
@@ -129,7 +125,7 @@ size_t DirectOdometry::Allocate(const ImagePyramid& grays, bool is_stereo) {
                            static_cast<double>(bytes) / 1e6);
 
   // Check colormap is ok
-  if (cfg_.vis) {
+  if (cfg_.vis > 0) {
     CHECK(cmap.Ok());
   }
 
@@ -155,12 +151,12 @@ OdomStatus DirectOdometry::Estimate(const cv::Mat& image_l,
   OdomStatus status;
 
   status.track = Track(image_l, image_r, dT);
-  if (cfg_.vis) DrawFrame(depth);
+  if (cfg_.vis > 0) DrawFrame(depth);
 
   if (!status.track.ok) Reinitialize();
 
   status.map = Map(status.track.add_kf, depth);
-  if (cfg_.vis && status.track.add_kf) DrawKeyframe();
+  if (cfg_.vis > 1 && status.track.add_kf) DrawKeyframe();
 
   if (cfg_.log > 0) Summarize(status.track.add_kf);
   return status;
@@ -187,15 +183,15 @@ TrackStatus DirectOdometry::Track(const cv::Mat& image_l,
     total_bytes_ = Allocate(grays_l, !grays_r.empty());
   }
 
-  // Update frame (keep the old affine parameters)
-  // Note that this uses the same storage as the static grays0 and grays1
+  // Update frame image and pose (keep the old affine parameters)
+  // Note that this uses the same storage as grays_l and grays_r
   frame.SetGrays(grays_l, grays_r);
   frame.SetTwc(frame.Twc() * dT);
 
-  // Get a copy of the current state if alignment failed
+  // Get a copy of the current (predicted) state if alignment failed
   const FrameState init_state = frame.state();
 
-  // Track frame if possible
+  // Track frame if possible, if its first frame then result is also ok
   status.ok = true;
   if (!window.empty()) {
     status.ok = TrackFrame();
@@ -259,9 +255,9 @@ void DirectOdometry::ConvertGray(const cv::Mat& image, cv::Mat& gray) const {
   if (image.type() == CV_8UC3) {
     cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
   } else if (image.type() == CV_8UC1) {
-    gray = image.clone();
+    image.copyTo(gray);
   } else {
-    CHECK(false) << "Invalid image type: " << CvTypeStr(image.type());
+    CHECK(false) << "Invalid image type: " << image.type();
   }
 }
 
@@ -294,9 +290,9 @@ bool DirectOdometry::TrackFrame() {
 
   LOG(INFO) << fmt::format(log_color, "{}", status.Repr());
 
-  for (int k = 0; k < window.size(); ++k) {
-    LOG(INFO) << k << ": " << window.KfAt(k).status().Repr();
-  }
+  //  for (int k = 0; k < window.size(); ++k) {
+  //    LOG(INFO) << k << ": " << window.KfAt(k).status().Repr();
+  //  }
 
   // FIXME (dsol): This is a bit hacky
   // If affine is enabled, adjust is stereo but align is not, we need to also
@@ -322,7 +318,7 @@ void DirectOdometry::Reinitialize() {
                                "true, press any key to exit the program.");
       cv::waitKey(-1);
     }
-    //    CHECK(false) << fmt::format(log_color, "Tracking failed, exit");
+    // CHECK(false) << fmt::format(log_color, "Tracking failed, exit");
   }
 
   // Reset all kf, clear window, reset prior
@@ -523,9 +519,9 @@ void DirectOdometry::BundleAdjust() {
   }
   LOG(INFO) << fmt::format(log_color, "{}", status.Repr());
 
-  for (int k = 0; k < window.size(); ++k) {
-    LOG(INFO) << k << ": " << window.KfAt(k).status().Repr();
-  }
+  //  for (int k = 0; k < window.size(); ++k) {
+  //    LOG(INFO) << k << ": " << window.KfAt(k).status().Repr();
+  //  }
 
   // Set first kf's affine param to (0, 0) and adjust others accordingly. This
   // is to avoid unbounded growing of affine parameters
@@ -544,11 +540,11 @@ void DirectOdometry::BundleAdjust() {
 
 void DirectOdometry::Summarize(bool new_kf) const {
   const auto stats_tracking = SumStatsStartWith(ts, "T");
-  ts.Update("All_Tracking", stats_tracking);
+  ts.Merge("All_Tracking", stats_tracking);
 
   if (new_kf) {
     const auto stats_keyframe = SumStatsStartWith(ts, "K");
-    ts.Update("All_Keyframe", stats_keyframe);
+    ts.Merge("All_Keyframe", stats_keyframe);
   }
 
   LOG_EVERY_N(INFO, cfg_.log) << ts.ReportAll(true);
@@ -576,6 +572,8 @@ void DirectOdometry::DrawFrame(const cv::Mat& depth) const {
         "idepth_left",
         ApplyCmap(cfg_.vis_min_depth / depth, 1.0, cv::COLORMAP_PINK, 0));
   }
+
+  cv::waitKey(1);
 }
 
 void DirectOdometry::DrawKeyframe() const {
@@ -606,7 +604,7 @@ void DirectOdometry::DrawKeyframe() const {
                   cmap,
                   camera.Depth2Disp(matcher.cfg().min_depth),
                   2);
-  tiler.Tile("stereo", disp_stereo);
+  //  tiler.Tile("stereo", disp_stereo);
 
   // Draw mask
   tiler.Tile("mask", selector.mask());

@@ -7,8 +7,6 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <visualization_msgs/Marker.h>
 
-#include <sophus/se3.hpp>
-
 #include "sv/dsol/direct.h"
 #include "sv/dsol/odom.h"
 #include "sv/dsol/select.h"
@@ -22,6 +20,7 @@ StereoCfg ReadStereoCfg(const ros::NodeHandle& pnh);
 OdomCfg ReadOdomCfg(const ros::NodeHandle& pnh);
 
 Camera MakeCamera(const sensor_msgs::CameraInfo& cinfo_msg);
+void UpdateCamera(const sensor_msgs::CameraInfo& cinfo_msg, Camera& camera);
 
 void Keyframe2Cloud(const Keyframe& kefyrame,
                     sensor_msgs::PointCloud2& cloud,
@@ -38,6 +37,7 @@ void DrawAlignGraph(const Eigen::Vector3d& frame_pos,
                     double scale,
                     visualization_msgs::Marker& marker);
 
+/// @brief Publish pose and also add it to path
 struct PosePathPublisher {
   PosePathPublisher() = default;
   PosePathPublisher(ros::NodeHandle pnh,

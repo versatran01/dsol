@@ -108,7 +108,7 @@ struct Frame {
   int levels() const noexcept { return static_cast<int>(grays_l_.size()); }
   bool empty() const noexcept { return grays_l_.empty(); }
   bool is_stereo() const noexcept { return !grays_r_.empty(); }
-  cv::Size cvsize() const noexcept;
+  cv::Size image_size() const noexcept;
 
   /// @brief Accessors
   const ImagePyramid& grays_l() const noexcept { return grays_l_; }
@@ -170,7 +170,7 @@ struct Keyframe final : public Frame {
   /// @brief Update state during optimization, need to call
   /// UpdateLinearizationPoint() to finalize the change
   void UpdateState(const Vector10dCRef& dx) noexcept override;
-  void UpdatePoints(const VectorXdCRef& xm, int gsize = 0) noexcept;
+  void UpdatePoints(const VectorXdCRef& xm, double scale, int gsize = 0);
   void UpdateStatusInfo() noexcept { status_.UpdateInfo(points_); }
 
   FramePointGrid& points() noexcept { return points_; }

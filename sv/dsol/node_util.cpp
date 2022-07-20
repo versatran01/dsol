@@ -1,7 +1,6 @@
 #include "sv/dsol/node_util.h"
 
 #include "sv/ros1/msg_conv.h"
-#include "sv/util/logging.h"
 
 namespace sv::dsol {
 
@@ -82,6 +81,15 @@ Camera MakeCamera(const sensor_msgs::CameraInfo& cinfo_msg) {
   return {size, fc, cinfo_msg.P[3] / K[0]};
 }
 
+void UpdateCamera(const sensor_msgs::CameraInfo& cinfo_msg, Camera& camera) {
+  // This is a hack
+  camera.size_.width = cinfo_msg.width;
+  camera.size_.height = cinfo_msg.height;
+  const auto& K = cinfo_msg.K;
+  camera.fxycxy_ << K[0], K[4], K[2], K[5];
+  camera.scale_ = 1.0;
+}
+
 void Keyframe2Cloud(const Keyframe& keyframe,
                     sensor_msgs::PointCloud2& cloud,
                     double max_depth,
@@ -143,28 +151,6 @@ void Keyframes2Cloud(const KeyframePtrConstSpan& keyframes,
 }
 
 /// ============================================================================
-PosePathPublisher::PosePathPublisher(ros::NodeHandle pnh,
-                                     const std::string& name,
-                                     const std::string& frame_id)
-    : frame_id_{frame_id},
-      pose_pub_{pnh.advertise<gm::PoseStamped>("pose_" + name, 1)},
-      path_pub_{pnh.advertise<nav_msgs::Path>("path_" + name, 1)} {
-  path_msg_.poses.reserve(1024);
-}
-
-gm::PoseStamped PosePathPublisher::Publish(const ros::Time& time,
-                                           const Sophus::SE3d& tf) {
-  gm::PoseStamped pose_msg;
-  pose_msg.header.stamp = time;
-  pose_msg.header.frame_id = frame_id_;
-  Sophus2Ros(tf, pose_msg.pose);
-  pose_pub_.publish(pose_msg);
-
-  path_msg_.header = pose_msg.header;
-  path_msg_.poses.push_back(pose_msg);
-  path_pub_.publish(path_msg_);
-  return pose_msg;
-}
 
 void DrawAlignGraph(const Eigen::Vector3d& frame_pos,
                     const Eigen::Matrix3Xd& kfs_pos,
@@ -177,10 +163,10 @@ void DrawAlignGraph(const Eigen::Vector3d& frame_pos,
   marker.id = 0;
   marker.type = vm::Marker::LINE_LIST;
   marker.action = vm::Marker::ADD;
-  marker.color.b = color[0];
-  marker.color.g = color[1];
-  marker.color.r = color[2];
-  marker.color.a = 1.0;
+  marker.color.b = static_cast<float>(color[0]);
+  marker.color.g = static_cast<float>(color[1]);
+  marker.color.r = static_cast<float>(color[2]);
+  marker.color.a = 1.0F;
 
   marker.scale.x = scale;
   marker.pose.orientation.w = 1.0;
@@ -202,6 +188,29 @@ void DrawAlignGraph(const Eigen::Vector3d& frame_pos,
     marker.points.push_back(p0);
     marker.points.push_back(p1);
   }
+}
+
+PosePathPublisher::PosePathPublisher(ros::NodeHandle pnh,
+                                     const std::string& name,
+                                     const std::string& frame_id)
+    : frame_id_{frame_id},
+      pose_pub_{pnh.advertise<gm::PoseStamped>("pose_" + name, 1)},
+      path_pub_{pnh.advertise<nav_msgs::Path>("path_" + name, 1)} {
+  path_msg_.poses.reserve(1024);
+}
+
+gm::PoseStamped PosePathPublisher::Publish(const ros::Time& time,
+                                           const Sophus::SE3d& tf) {
+  gm::PoseStamped pose_msg;
+  pose_msg.header.stamp = time;
+  pose_msg.header.frame_id = frame_id_;
+  Sophus2Ros(tf, pose_msg.pose);
+  pose_pub_.publish(pose_msg);
+
+  path_msg_.header = pose_msg.header;
+  path_msg_.poses.push_back(pose_msg);
+  path_pub_.publish(path_msg_);
+  return pose_msg;
 }
 
 }  // namespace sv::dsol

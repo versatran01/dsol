@@ -36,7 +36,8 @@ struct DirectCostCfg {
 
   /// @brief Get actual frame dim
   int GetFrameDim() const noexcept {
-    return Dim::kPose + Dim::kAffine * affine * (stereo + 1);
+    return Dim::kPose + Dim::kAffine * static_cast<int>(affine) *
+                            (static_cast<int>(stereo) + 1);
   }
 };
 
@@ -58,7 +59,6 @@ struct DirectStatus {
   int num_points{};       // num points used
   int num_levels{};       // num levels used
   int num_iters{};        // num iters run
-  int good_iters{};       // good iters
   int num_costs{};        // num costs
   double cost{};          // total cost
   bool converged{false};  // whether convergence reached
@@ -70,7 +70,6 @@ struct DirectStatus {
 
   void Accumulate(const DirectStatus& status) noexcept {
     num_levels += status.num_levels;
-    good_iters += status.good_iters;
     num_iters += status.num_iters;
     num_costs = status.num_costs;
     cost = status.cost;

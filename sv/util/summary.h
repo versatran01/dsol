@@ -3,6 +3,7 @@
 #include <absl/container/flat_hash_map.h>
 #include <absl/time/time.h>
 
+#include <mutex>
 #include <shared_mutex>
 #include <string_view>
 
@@ -30,23 +31,33 @@ class SummaryBase {
  public:
   using StatsT = Stats<T>;
 
-  explicit SummaryBase(const std::string& name = "stats") : name_{name} {}
+  explicit SummaryBase(std::string name = "stats") : name_{std::move(name)} {}
   virtual ~SummaryBase() noexcept = default;
 
-  const std::string& name() const noexcept { return name_; }
+  bool empty() const noexcept { return stats_dict_.empty(); }
   auto size() const noexcept { return stats_dict_.size(); }
-  bool empty() const noexcept { return size() == 0; }
+  const auto& name() const noexcept { return name_; }
   const auto& dict() const { return stats_dict_; }
 
-  /// @brief Thread-safe update, aggregate stats
-  void Update(std::string_view name, const StatsT& stats) {
+  /// @brief Merge stats given name, create a new one if name is new.
+  /// @details Thread-safe
+  /// @note Use string_view because absl::*_map supports heterogenous lookup
+  void Merge(std::string_view name, const StatsT& stats) {
     if (!stats.ok()) return;
     std::unique_lock lock{mutex_};
     stats_dict_[name] += stats;
   }
 
-  /// @brief Returns a copy of the stats under timer_name
-  /// If not found returns empty stats
+  /// @brief Add new data to stats given name, create a new one if name is new.
+  /// @details Thread-safe
+  void Add(std::string_view name, const T& val) {
+    std::unique_lock lock{mutex_};
+    stats_dict_[name].Add(val);
+  }
+
+  /// @brief Get stats under name
+  /// @details Thread-safe
+  /// @return Copy of stats if found, otherwise returns empty stats
   StatsT GetStats(std::string_view name) const {
     std::shared_lock lock{mutex_};
     const auto it = stats_dict_.find(name);
@@ -58,6 +69,8 @@ class SummaryBase {
   /// @brief Return a string of all stats
   std::string ReportAll(bool sort = false) const {
     std::string str = "Manager: " + name_;
+
+    std::shared_lock lock{mutex_};
     if (sort) {
       std::vector<std::string> keys;
       keys.reserve(stats_dict_.size());

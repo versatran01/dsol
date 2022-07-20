@@ -227,7 +227,7 @@ AlignStatus FrameAligner::AlignLevel(KeyframePtrSpan keyframes,
 
 void FrameAligner::UpdateTrackAndIdepth(KeyframePtrSpan keyframes,
                                         const Frame& frame) {
-  const auto img_size = frame.cvsize();
+  const auto img_size = frame.image_size();
   const cv::Size cell_size(img_size.width / idepth_.cols,
                            img_size.height / idepth_.rows);
   idepth_.setTo(0);

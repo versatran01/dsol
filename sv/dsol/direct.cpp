@@ -57,11 +57,10 @@ std::string DirectCfg::Repr() const {
 std::string DirectStatus::Repr() const {
   return fmt::format(
       "DirectStatus(num_kfs={}, num_points={}, num_levels={}, "
-      "num_iters={}/{}, num_costs={}, cost={:.2e}, converged={})",
+      "num_iters={}, num_costs={}, cost={:.2e}, converged={})",
       num_kfs,
       num_points,
       num_levels,
-      good_iters,
       num_iters,
       num_costs,
       cost,

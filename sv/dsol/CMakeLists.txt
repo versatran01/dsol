@@ -218,4 +218,9 @@ if(BUILD_ROS)
     NAME dsol_node_data
     SRCS "node_data.cpp"
     DEPS sv_dsol_extra sv_util_dataset sv_dsol_node_util)
+
+  cc_binary(
+    NAME dsol_node_odom
+    SRCS "node_odom.cpp"
+    DEPS sv_dsol_extra sv_util_dataset sv_dsol_node_util)
 endif()

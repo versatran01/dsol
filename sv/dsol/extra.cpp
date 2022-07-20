@@ -16,9 +16,14 @@ void MotionModel::Init(const Sophus::SE3d& T_w_c,
 }
 
 void MotionModel::Correct(const Sophus::SE3d& T_w_c, double dt) {
-  const auto tf_delta = T_last_.inverse() * T_w_c;
-  omg_ = (1 - alpha_) * omg_ + (alpha_ / dt) * tf_delta.so3().log();
-  vel_ = (1 - alpha_) * vel_ + (alpha_ / dt) * tf_delta.translation();
+  // Only update velocity when dt is > 0
+  if (dt > 0) {
+    const auto tf_delta = T_last_.inverse() * T_w_c;
+    const auto w = alpha_ / dt;
+    omg_ = (1 - alpha_) * omg_ + (alpha_ / dt) * tf_delta.so3().log();
+    vel_ = (1 - alpha_) * vel_ + (alpha_ / dt) * tf_delta.translation();
+  }
+
   T_last_ = T_w_c;
 }
 
@@ -94,7 +99,7 @@ PlayData::PlayData(const Dataset& dataset, const PlayCfg& cfg)
   }
 
   const auto intrin = dataset.Get(DataType::kIntrin, 0);
-  camera = Camera::FromMat(frames.front().cvsize(), intrin);
+  camera = Camera::FromMat(frames.front().image_size(), intrin);
 }
 
 void InitKfWithDepth(Keyframe& kf,

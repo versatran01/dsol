@@ -82,8 +82,6 @@ AdjustStatus BundleAdjuster::AdjustLevel(KeyframePtrSpan keyframes,
     }
 
     const auto xs_max = Solve(!cfg_.cost.stereo, gsize);
-
-    status.good_iters += (xs_max <= xs_prev);
     xs_prev = xs_max;
     Update(keyframes, gsize);
 

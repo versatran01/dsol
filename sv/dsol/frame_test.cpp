@@ -53,8 +53,8 @@ TEST_F(FrameTest, TestMonoCtor) {
   EXPECT_FALSE(frame.empty());
   EXPECT_FALSE(frame.is_stereo());
   EXPECT_EQ(frame.levels(), kNumLevels);
-  EXPECT_EQ(frame.cvsize().height, kImageSize);
-  EXPECT_EQ(frame.cvsize().width, kImageSize);
+  EXPECT_EQ(frame.image_size().height, kImageSize);
+  EXPECT_EQ(frame.image_size().width, kImageSize);
 }
 
 TEST_F(FrameTest, TestStereoCtor) {

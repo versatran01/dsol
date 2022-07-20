@@ -22,7 +22,7 @@ struct MotionModel {
   double alpha() const noexcept { return alpha_; }
 
   bool Ok() const noexcept { return init_; }
-  void Init(const Sophus::SE3d& T_w_c,
+  void Init(const Sophus::SE3d& T_w_c = {},
             const Eigen::Vector3d& vel = {0, 0, 0},
             const Eigen::Vector3d& omg = {0, 0, 0});
 

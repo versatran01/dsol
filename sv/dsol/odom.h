@@ -12,7 +12,7 @@ namespace sv::dsol {
 struct OdomCfg {
   int tbb{0};                   // tbb grainsize
   int log{0};                   // log interval
-  bool vis{false};              // show visualization
+  int vis{0};                   // show visualization
   int num_kfs{4};               // num kfs in window
   int num_levels{4};            // num pyramid levels
   double min_track_ratio{0.3};  // min track ratio to add new kf

@@ -8,7 +8,7 @@
 namespace sv::dsol {
 
 std::string Frame::Repr() const {
-  const auto size = cvsize();
+  const auto size = image_size();
   return fmt::format(
       "Frame(w={}, h={}, levels={}, stereo={}, trans=[{}], "
       "affine_l=[{}], affine_r=[{}])",
@@ -51,7 +51,7 @@ void Frame::SetGrays(const ImagePyramid& grays_l, const ImagePyramid& grays_r) {
   }
 }
 
-cv::Size Frame::cvsize() const noexcept {
+cv::Size Frame::image_size() const noexcept {
   if (empty()) return {};
   const auto& img0 = grays_l_.at(0);
   return {img0.cols, img0.rows};
@@ -72,7 +72,7 @@ size_t Keyframe::Allocate(int num_levels, const cv::Size& grid_size) {
 }
 
 std::string Keyframe::Repr() const {
-  const auto size = cvsize();
+  const auto size = image_size();
   return fmt::format(
       "Keyframe(w={}, h={}, levels={}, stereo={}, fixed={}, trans=[{}], "
       "affine_l=[{}], affine_r=[{}])",
@@ -101,14 +101,12 @@ void Keyframe::UpdateState(const Vector10dCRef& dx) noexcept {
   Frame::UpdateState(dx);
 }
 
-void Keyframe::UpdatePoints(const VectorXdCRef& xm, int gsize) noexcept {
+void Keyframe::UpdatePoints(const VectorXdCRef& xm, double scale, int gsize) {
   ParallelFor({0, points_.rows(), gsize}, [&](int gr) {
     for (int gc = 0; gc < points_.cols(); ++gc) {
       auto& point = points_.at(gr, gc);
       if (point.HidBad()) continue;
-
-      const auto d_idepth = xm(point.hid);
-      point.UpdateIdepth(d_idepth);
+      point.UpdateIdepth(xm[point.hid] * scale);
     }
   });
 }
@@ -135,7 +133,7 @@ int Keyframe::InitPoints(const PixelGrid& pixels, const Camera& camera) {
       const auto& px = pixels.at(gr, gc);
 
       // If a point is not selected, reset it
-      if (IsPixOut(cvsize(), px, 1)) continue;
+      if (IsPixOut(image_size(), px, 1)) continue;
 
       // Otherwise we just initialize it with the selected px. At its
       // current stage, it will not be used by either aligner or adjuster,
@@ -265,8 +263,8 @@ int Keyframe::InitFromDepth(const cv::Mat& depth, double info) {
 
   CHECK(Ok());
   CHECK_EQ(depth.type(), CV_32FC1);
-  CHECK_EQ(depth.rows, cvsize().height);
-  CHECK_EQ(depth.cols, cvsize().width);
+  CHECK_EQ(depth.rows, image_size().height);
+  CHECK_EQ(depth.cols, image_size().width);
 
   int n_init = 0;
   for (int gr = 0; gr < points_.rows(); ++gr) {

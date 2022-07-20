@@ -145,7 +145,7 @@ void NodeData::PublishCloud(const std_msgs::Header& header) const {
   static sensor_msgs::PointCloud2 cloud;
   cloud.header = header;
   cloud.point_step = 16;
-  cloud.fields = MakePointFieldsXYZI();
+  cloud.fields = MakePointFields("xyzi");
 
   ROS_DEBUG_STREAM(odom_.window.MargKf().status().Repr());
   Keyframe2Cloud(odom_.window.MargKf(), cloud, cloud_max_depth_);
