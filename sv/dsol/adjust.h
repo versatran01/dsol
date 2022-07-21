@@ -120,7 +120,7 @@ class BundleAdjuster final : public DirectMethod {
                     int gsize = 0);
 
   double Solve(bool fix_scale, int gsize = 0);
-  void Update(KeyframePtrSpan keyframes, int gsize = 0);
+  void Update(KeyframePtrSpan keyframes, int level, int gsize = 0);
 
   /// @brief Prepare points, only consider point with info >= min_info
   int PointsInfoGe(KeyframePtrSpan keyframes, double min_info);

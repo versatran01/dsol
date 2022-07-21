@@ -532,7 +532,7 @@ void DirectOdometry::BundleAdjust() {
     state.affine_r.ab -= kf0_ab_l;
   }
 
-  LOG(INFO) << "\n" << window.GetAllAffine().transpose();
+  // LOG(INFO) << "\n" << window.GetAllAffine().transpose();
 
   // After bundle adjustment we need to update state of the current frame
   frame.SetState(window.CurrKf().state());

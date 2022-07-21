@@ -60,11 +60,10 @@ AdjustStatus BundleAdjuster::AdjustLevel(KeyframePtrSpan keyframes,
   const auto num_levels = keyframes.front()->levels();
 
   AdjustStatus status;
-  status.num_kfs = keyframes.size();
+  status.num_kfs = static_cast<int>(keyframes.size());
   status.num_levels = 1;
   status.num_points = pranges_.back().end;
 
-  double xs_prev = 1e10;
   const auto xs_stop = cfg_.optm.max_xs * std::pow(2.0, level);
   const auto max_iters = cfg_.optm.max_iters;
 
@@ -82,7 +81,6 @@ AdjustStatus BundleAdjuster::AdjustLevel(KeyframePtrSpan keyframes,
     }
 
     const auto xs_max = Solve(!cfg_.cost.stereo, gsize);
-    xs_prev = xs_max;
     Update(keyframes, gsize);
 
     VLOG(2) << LogIter({level, num_levels},
@@ -192,6 +190,8 @@ void BundleAdjuster::BuildLevelKf(KeyframePtrSpan keyframes,
       2.0 / (DepthPoint::kMaxInfo - DepthPoint::kOkInfo) / (level + 1.0);
   const auto num_kfs = static_cast<int>(keyframes.size());
   const auto& kf0 = GetKfAt(keyframes, k0);
+  const auto& points0 = kf0.points();
+  const auto& patches0 = kf0.patches().at(level);
 
   for (int k1 = 0; k1 < num_kfs; ++k1) {
     // Skip the case when looking at the same frame, note that this also
@@ -200,8 +200,6 @@ void BundleAdjuster::BuildLevelKf(KeyframePtrSpan keyframes,
     if (k0 == k1) continue;
 
     const auto& kf1 = GetKfAt(keyframes, k1);
-    const auto& points0 = kf0.points();
-    const auto& patches0 = kf0.patches().at(level);
     const AdjustCost cost(
         level, camera, kf0, kf1, {k0, k1}, block_, cfg_.cost, dinfo);
     const auto hess01 = cost.Build(points0, patches0, gsize);
@@ -271,11 +269,13 @@ double BundleAdjuster::Solve(bool fix_scale, int gsize) {
   return xs_max;
 }
 
-void BundleAdjuster::Update(KeyframePtrSpan keyframes, int gsize) {
+void BundleAdjuster::Update(KeyframePtrSpan keyframes, int level, int gsize) {
+  const double scale = std::pow(1.2, -level);
+
   ParallelFor({0, static_cast<int>(keyframes.size()), gsize}, [&](int k) {
     Keyframe& kf = *keyframes.at(k);
     kf.UpdateState(block_.XpAt(k));
-    kf.UpdatePoints(block_.xm, gsize);
+    kf.UpdatePoints(block_.xm, scale, gsize);
   });
 }
 
@@ -470,7 +470,7 @@ auto AdjustCost::CalcJacGeo(const FramePoint& point0,
 
   // dp1_dr0 = -R10 * [n]x
   dp_dx.leftCols<3>().noalias() = -T10_fej.linear() * Hat3d(point0.nh());
-  // dp1_dt0 = -q0 * R10
+  // dp1_dt0 = R10 * q0
   dp_dx.rightCols<3>().noalias() = q0 * T10_fej.linear();
   j_geo.du1_dx0.noalias() = du1_dp1 * dp_dx;
 

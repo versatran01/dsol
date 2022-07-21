@@ -6,6 +6,8 @@
 #include <sensor_msgs/Imu.h>
 #include <tf2_ros/transform_broadcaster.h>
 
+#include <boost/circular_buffer.hpp>
+
 #include "sv/dsol/extra.h"
 #include "sv/dsol/node_util.h"
 #include "sv/dsol/odom.h"
@@ -56,12 +58,13 @@ struct NodeOdom {
 
   MotionModel motion_;
   DirectOdometry odom_;
+  boost::circular_buffer<sm::Imu> imus_;
 
   std::string frame_{"fixed"};
   sm::PointCloud2 cloud_;
 };
 
-NodeOdom::NodeOdom(const ros::NodeHandle& pnh) : pnh_{pnh} {
+NodeOdom::NodeOdom(const ros::NodeHandle& pnh) : pnh_{pnh}, imus_(50) {
   InitOdom();
   InitRosIO();
 }
@@ -91,8 +94,8 @@ void NodeOdom::InitRosIO() {
   sub_cinfo0_ = pnh_.subscribe("cinfo0", 1, &NodeOdom::Cinfo0Cb, this);
   sub_tf_cam_ = pnh_.subscribe("tf_cam", 1, &NodeOdom::TfCamCb, this);
   sub_tf_imu_ = pnh_.subscribe("tf_imu", 1, &NodeOdom::TfImuCb, this);
-  sub_acc_ = pnh_.subscribe("acc", 100, &NodeOdom::AccCb, this);
-  sub_gyr_ = pnh_.subscribe("gyr", 100, &NodeOdom::GyrCb, this);
+  sub_gyr_ = pnh_.subscribe("gyr", 200, &NodeOdom::GyrCb, this);
+  // sub_acc_ = pnh_.subscribe("acc", 100, &NodeOdom::AccCb, this);
 
   pub_odom_ = PosePathPublisher(pnh_, "odom", frame_);
   pub_points_ = pnh_.advertise<sm::PointCloud2>("points", 1);
@@ -124,7 +127,14 @@ void NodeOdom::Image1Cb(const sensor_msgs::ImageConstPtr& image1_ptr) {
 
 void NodeOdom::AccCb(const sensor_msgs::Imu& acc_msg) {}
 
-void NodeOdom::GyrCb(const sensor_msgs::Imu& gyr_msg) {}
+void NodeOdom::GyrCb(const sensor_msgs::Imu& gyr_msg) {
+  // Normally there is a transform from imu to camera, but in realsense, imu and
+  // left infrared camera are aligned (only small translation, so we skip
+  // reading the tf)
+
+  imus_.push_back(gyr_msg);
+  const auto& w = gyr_msg.angular_velocity;
+}
 
 void NodeOdom::Estimate() {
   CHECK_NOTNULL(image0_ptr_);
@@ -138,19 +148,52 @@ void NodeOdom::Estimate() {
     return;
   }
 
-  const auto image_header = image0_ptr_->header;
+  const auto curr_header = image0_ptr_->header;
   const auto image0 = cb::toCvShare(image0_ptr_)->image;
   const auto image1 = cb::toCvShare(image1_ptr_)->image;
 
   // Get delta time
   static ros::Time prev_stamp;
   const auto delta_duration =
-      prev_stamp.isZero() ? ros::Duration{} : image_header.stamp - prev_stamp;
+      prev_stamp.isZero() ? ros::Duration{} : curr_header.stamp - prev_stamp;
   const auto dt = delta_duration.toSec();
   ROS_INFO_STREAM("dt: " << dt * 1000);
 
   // Motion model
-  const auto dtf_pred = motion_.PredictDelta(dt);
+  Sophus::SE3d dtf_pred;
+  if (dt > 0) {
+    // Do a const vel prediction first
+    dtf_pred = motion_.PredictDelta(dt);
+
+    // Then overwrite rotation part if we have imu
+    // TODO(dsol): Use 0th order integration, maybe switch to 1st order later
+    ROS_INFO_STREAM(
+        fmt::format("prev: {}, curr: {}, first_imu: {}, last_imu: {}",
+                    prev_stamp.toSec(),
+                    curr_header.stamp.toSec(),
+                    imus_.front().header.stamp.toSec(),
+                    imus_.back().header.stamp.toSec()));
+    Sophus::SO3d dR{};
+    int n_imus = 0;
+    for (size_t i = 0; i < imus_.size(); ++i) {
+      const auto& imu = imus_[i];
+      // Skip imu msg that is earlier than the previous odom
+      if (imu.header.stamp <= prev_stamp) continue;
+      if (imu.header.stamp > curr_header.stamp) continue;
+
+      const auto prev_imu_stamp =
+          i == 0 ? prev_stamp : imus_.at(i - 1).header.stamp;
+      const double dt_imu = (imu.header.stamp - prev_imu_stamp).toSec();
+      CHECK_GT(dt_imu, 0);
+      Eigen::Map<const Eigen::Vector3d> w(&imu.angular_velocity.x);
+      dR *= Sophus::SO3d::exp(w * dt_imu);
+      ++n_imus;
+    }
+    ROS_INFO_STREAM("n_imus: " << n_imus);
+    // We just replace const vel prediction
+    dtf_pred.so3() = dR;
+  }
+
   const auto status = odom_.Estimate(image0, image1, dtf_pred);
   ROS_INFO_STREAM(status.Repr());
 
@@ -164,22 +207,24 @@ void NodeOdom::Estimate() {
   // publish stuff
   std_msgs::Header header;
   header.frame_id = "fixed";
-  header.stamp = image_header.stamp;
+  header.stamp = curr_header.stamp;
 
   PublishOdom(header, status.Twc());
   if (status.map.remove_kf) {
     PublishCloud(header);
   }
 
-  prev_stamp = image_header.stamp;
+  prev_stamp = curr_header.stamp;
   image0_ptr_.reset();
   image1_ptr_.reset();
 }
 
 void NodeOdom::PublishOdom(const std_msgs::Header& header,
                            const Sophus::SE3d& tf) {
+  // Publish odom poses
   const auto pose_msg = pub_odom_.Publish(header.stamp, tf);
 
+  // Publish keyframe poses
   const auto poses = odom_.window.GetAllPoses();
   gm::PoseArray parray_msg;
   parray_msg.header = header;
