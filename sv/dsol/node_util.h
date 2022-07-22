@@ -20,7 +20,6 @@ StereoCfg ReadStereoCfg(const ros::NodeHandle& pnh);
 OdomCfg ReadOdomCfg(const ros::NodeHandle& pnh);
 
 Camera MakeCamera(const sensor_msgs::CameraInfo& cinfo_msg);
-void UpdateCamera(const sensor_msgs::CameraInfo& cinfo_msg, Camera& camera);
 
 void Keyframe2Cloud(const Keyframe& kefyrame,
                     sensor_msgs::PointCloud2& cloud,

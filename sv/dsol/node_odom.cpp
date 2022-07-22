@@ -1,5 +1,7 @@
 #include <cv_bridge/cv_bridge.h>
 #include <geometry_msgs/PoseArray.h>
+#include <message_filters/subscriber.h>
+#include <message_filters/time_synchronizer.h>
 #include <nav_msgs/Path.h>
 #include <ros/ros.h>
 #include <sensor_msgs/Image.h>
@@ -18,6 +20,7 @@ namespace sv::dsol {
 namespace cb = cv_bridge;
 namespace sm = sensor_msgs;
 namespace gm = geometry_msgs;
+namespace mf = message_filters;
 
 struct NodeOdom {
   explicit NodeOdom(const ros::NodeHandle& pnh);
@@ -25,9 +28,9 @@ struct NodeOdom {
   void InitOdom();
   void InitRosIO();
 
-  void Image0Cb(const sm::ImageConstPtr& image0_ptr);
-  void Image1Cb(const sm::ImageConstPtr& image1_ptr);
-  void Cinfo0Cb(const sm::CameraInfo& cinfo0_msg);
+  void Cinfo1Cb(const sm::CameraInfo& cinfo1_msg);
+  void StereoCb(const sm::ImageConstPtr& image0_ptr,
+                const sm::ImageConstPtr& image1_ptr);
 
   void TfCamCb(const gm::Transform& tf_cam_msg);
   void TfImuCb(const gm::Transform& tf_imu_msg);
@@ -35,36 +38,39 @@ struct NodeOdom {
   void AccCb(const sm::Imu& acc_msg);
   void GyrCb(const sm::Imu& gyr_msg);
 
-  void Estimate();
   void PublishOdom(const std_msgs::Header& header, const Sophus::SE3d& tf);
   void PublishCloud(const std_msgs::Header& header);
 
+  using StereoSync = mf::TimeSynchronizer<sm::Image, sm::Image>;
+
   ros::NodeHandle pnh_;
 
-  ros::Subscriber sub_cinfo0_;
-  ros::Subscriber sub_image0_;
-  ros::Subscriber sub_image1_;
-  ros::Subscriber sub_tf_cam_;
-  ros::Subscriber sub_tf_imu_;
-  ros::Subscriber sub_acc_;
+  boost::circular_buffer<sm::Imu> gyrs_;
+  mf::Subscriber<sm::Image> sub_image0_;
+  mf::Subscriber<sm::Image> sub_image1_;
+  StereoSync sync_stereo_;
+
+  ros::Subscriber sub_cinfo1_;
+  //  ros::Subscriber sub_acc_;
   ros::Subscriber sub_gyr_;
 
   ros::Publisher pub_points_;
   ros::Publisher pub_parray_;
   PosePathPublisher pub_odom_;
 
-  sm::ImageConstPtr image0_ptr_;
-  sm::ImageConstPtr image1_ptr_;
-
   MotionModel motion_;
   DirectOdometry odom_;
-  boost::circular_buffer<sm::Imu> imus_;
 
   std::string frame_{"fixed"};
   sm::PointCloud2 cloud_;
 };
 
-NodeOdom::NodeOdom(const ros::NodeHandle& pnh) : pnh_{pnh}, imus_(50) {
+NodeOdom::NodeOdom(const ros::NodeHandle& pnh)
+    : pnh_(pnh),
+      gyrs_(50),
+      sub_image0_(pnh_, "image0", 5),
+      sub_image1_(pnh_, "image1", 5),
+      sync_stereo_(sub_image0_, sub_image1_, 5) {
   InitOdom();
   InitRosIO();
 }
@@ -89,11 +95,8 @@ void NodeOdom::InitOdom() {
 }
 
 void NodeOdom::InitRosIO() {
-  sub_image0_ = pnh_.subscribe("image0", 5, &NodeOdom::Image0Cb, this);
-  sub_image1_ = pnh_.subscribe("image1", 5, &NodeOdom::Image1Cb, this);
-  sub_cinfo0_ = pnh_.subscribe("cinfo0", 1, &NodeOdom::Cinfo0Cb, this);
-  sub_tf_cam_ = pnh_.subscribe("tf_cam", 1, &NodeOdom::TfCamCb, this);
-  sub_tf_imu_ = pnh_.subscribe("tf_imu", 1, &NodeOdom::TfImuCb, this);
+  sync_stereo_.registerCallback(boost::bind(&NodeOdom::StereoCb, this, _1, _2));
+  sub_cinfo1_ = pnh_.subscribe("cinfo1", 1, &NodeOdom::Cinfo1Cb, this);
   sub_gyr_ = pnh_.subscribe("gyr", 200, &NodeOdom::GyrCb, this);
   // sub_acc_ = pnh_.subscribe("acc", 100, &NodeOdom::AccCb, this);
 
@@ -102,27 +105,10 @@ void NodeOdom::InitRosIO() {
   pub_parray_ = pnh_.advertise<gm::PoseArray>("parray", 1);
 }
 
-void NodeOdom::Cinfo0Cb(const sensor_msgs::CameraInfo& cinfo0_msg) {
-  UpdateCamera(cinfo0_msg, odom_.camera);
+void NodeOdom::Cinfo1Cb(const sensor_msgs::CameraInfo& cinfo1_msg) {
+  odom_.camera = MakeCamera(cinfo1_msg);
   ROS_INFO_STREAM(odom_.camera.Repr());
-}
-
-void NodeOdom::Image0Cb(const sensor_msgs::ImageConstPtr& image0_ptr) {
-  if (!odom_.camera.Ok() || !odom_.camera.is_stereo()) return;
-
-  // save image
-  image0_ptr_ = image0_ptr;
-  if (!image1_ptr_) return;
-  Estimate();
-}
-
-void NodeOdom::Image1Cb(const sensor_msgs::ImageConstPtr& image1_ptr) {
-  if (!odom_.camera.Ok() || !odom_.camera.is_stereo()) return;
-
-  // save image
-  image1_ptr_ = image1_ptr;
-  if (!image0_ptr_) return;
-  Estimate();
+  sub_cinfo1_.shutdown();
 }
 
 void NodeOdom::AccCb(const sensor_msgs::Imu& acc_msg) {}
@@ -132,25 +118,14 @@ void NodeOdom::GyrCb(const sensor_msgs::Imu& gyr_msg) {
   // left infrared camera are aligned (only small translation, so we skip
   // reading the tf)
 
-  imus_.push_back(gyr_msg);
-  const auto& w = gyr_msg.angular_velocity;
+  gyrs_.push_back(gyr_msg);
 }
 
-void NodeOdom::Estimate() {
-  CHECK_NOTNULL(image0_ptr_);
-  CHECK_NOTNULL(image1_ptr_);
-  if (image0_ptr_->header.stamp != image1_ptr_->header.stamp) {
-    ROS_WARN_STREAM(fmt::format("image0 and image1 stamp not equal: {} vs {}",
-                                image0_ptr_->header.stamp,
-                                image1_ptr_->header.stamp));
-    image0_ptr_.reset();
-    image1_ptr_.reset();
-    return;
-  }
-
-  const auto curr_header = image0_ptr_->header;
-  const auto image0 = cb::toCvShare(image0_ptr_)->image;
-  const auto image1 = cb::toCvShare(image1_ptr_)->image;
+void NodeOdom::StereoCb(const sensor_msgs::ImageConstPtr& image0_ptr,
+                        const sensor_msgs::ImageConstPtr& image1_ptr) {
+  const auto curr_header = image0_ptr->header;
+  const auto image0 = cb::toCvShare(image0_ptr)->image;
+  const auto image1 = cb::toCvShare(image1_ptr)->image;
 
   // Get delta time
   static ros::Time prev_stamp;
@@ -171,18 +146,18 @@ void NodeOdom::Estimate() {
         fmt::format("prev: {}, curr: {}, first_imu: {}, last_imu: {}",
                     prev_stamp.toSec(),
                     curr_header.stamp.toSec(),
-                    imus_.front().header.stamp.toSec(),
-                    imus_.back().header.stamp.toSec()));
+                    gyrs_.front().header.stamp.toSec(),
+                    gyrs_.back().header.stamp.toSec()));
     Sophus::SO3d dR{};
     int n_imus = 0;
-    for (size_t i = 0; i < imus_.size(); ++i) {
-      const auto& imu = imus_[i];
+    for (size_t i = 0; i < gyrs_.size(); ++i) {
+      const auto& imu = gyrs_[i];
       // Skip imu msg that is earlier than the previous odom
       if (imu.header.stamp <= prev_stamp) continue;
       if (imu.header.stamp > curr_header.stamp) continue;
 
       const auto prev_imu_stamp =
-          i == 0 ? prev_stamp : imus_.at(i - 1).header.stamp;
+          i == 0 ? prev_stamp : gyrs_.at(i - 1).header.stamp;
       const double dt_imu = (imu.header.stamp - prev_imu_stamp).toSec();
       CHECK_GT(dt_imu, 0);
       Eigen::Map<const Eigen::Vector3d> w(&imu.angular_velocity.x);
@@ -191,7 +166,7 @@ void NodeOdom::Estimate() {
     }
     ROS_INFO_STREAM("n_imus: " << n_imus);
     // We just replace const vel prediction
-    dtf_pred.so3() = dR;
+    if (n_imus > 0) dtf_pred.so3() = dR;
   }
 
   const auto status = odom_.Estimate(image0, image1, dtf_pred);
@@ -215,8 +190,6 @@ void NodeOdom::Estimate() {
   }
 
   prev_stamp = curr_header.stamp;
-  image0_ptr_.reset();
-  image1_ptr_.reset();
 }
 
 void NodeOdom::PublishOdom(const std_msgs::Header& header,
@@ -247,17 +220,18 @@ void NodeOdom::PublishCloud(const std_msgs::Header& header) {
   pub_points_.publish(cloud_);
 }
 
-void NodeOdom::TfCamCb(const geometry_msgs::Transform& tf_cam_msg) {
-  odom_.camera.baseline_ = -tf_cam_msg.translation.x;
-  ROS_INFO_STREAM(odom_.camera.Repr());
-}
+// void NodeOdom::TfCamCb(const geometry_msgs::Transform& tf_cam_msg) {
+//   odom_.camera.baseline_ = -tf_cam_msg.translation.x;
+//   ROS_INFO_STREAM(odom_.camera.Repr());
+// }
 
-void NodeOdom::TfImuCb(const geometry_msgs::Transform& tf_imu_msg) {}
+// void NodeOdom::TfImuCb(const geometry_msgs::Transform& tf_imu_msg) {}
 
 }  // namespace sv::dsol
 
 int main(int argc, char** argv) {
   ros::init(argc, argv, "dsol_odom");
+  cv::setNumThreads(4);
   sv::dsol::NodeOdom node{ros::NodeHandle{"~"}};
   ros::spin();
 }

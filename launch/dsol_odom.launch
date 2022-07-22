@@ -16,13 +16,18 @@
         <param name="vis" type="int" value="$(arg vis)"/>
         <param name="mode" type="int" value="$(arg mode)"/>
 
-        <remap from="~cinfo0" to="/device_0/sensor_0/Infrared_1/info/camera_info"/>
+        <!-- <remap from="~cinfo0" to="/device_0/sensor_0/Infrared_1/info/camera_info"/>
         <remap from="~image0" to="/device_0/sensor_0/Infrared_1/image/data"/>
         <remap from="~image1" to="/device_0/sensor_0/Infrared_2/image/data"/>
-        <remap from="~tf_cam" to="/device_0/sensor_0/Infrared_2/tf/0"/>
+        <remap from="~tf_cam" to="/device_0/sensor_0/Infrared_2/tf/0"/> -->
 
-        <remap from="~acc" to="/device_0/sensor_2/Accel_0/imu/data"/>
-        <remap from="~gyr" to="/device_0/sensor_2/Gyro_0/imu/data"/>
-        <remap from="~tf_imu" to="/device_0/sensor_2/Gyro_0/tf/0"/>
+        <!-- <remap from="~acc" to="/device_0/sensor_2/Accel_0/imu/data"/> -->
+        <!-- <remap from="~gyr" to="/device_0/sensor_2/Gyro_0/imu/data"/> -->
+
+        <remap from="~cinfo0" to="/camera/infra1/camera_info"/>
+        <remap from="~cinfo1" to="/camera/infra2/camera_info"/>
+        <remap from="~image0" to="/camera/infra1/image_rect_raw"/>
+        <remap from="~image1" to="/camera/infra2/image_rect_raw"/>
+        <remap from="~gyr" to="/camera/gyro/sample"/>
     </node>
 </launch>
