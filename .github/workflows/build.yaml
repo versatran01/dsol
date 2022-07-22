@@ -4,7 +4,7 @@ name: build
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: '0 0 * * 0'
@@ -58,22 +58,6 @@ jobs:
           mkdir build && cd build
           git checkout 785fef3
           cmake ..
-          sudo make install
-
-      - name: Install xtl
-        run: |
-          git clone --depth 1 --branch 0.7.4 https://github.com/xtensor-stack/xtl.git
-          cd xtl
-          mkdir build && cd build
-          cmake -DCMAKE_INSTALL_PREFIX=/usr ..
-          sudo make install
-
-      - name: Install xtensor
-        run: |
-          git clone --depth 1 --branch 0.24.2  https://github.com/xtensor-stack/xtensor.git
-          cd xtensor
-          mkdir build && cd build
-          cmake -DCMAKE_INSTALL_PREFIX=/usr ..
           sudo make install
 
       - name: Install Google benchmark
