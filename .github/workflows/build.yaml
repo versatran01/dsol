@@ -28,6 +28,14 @@ jobs:
           rosdep update
           rosdep install --from-paths . --ignore-src -y -r --as-root apt:false
 
+      - name: Setup catkin workspace
+        run: |
+          . /opt/ros/${{ matrix.ros_distro }}/setup.sh
+          mkdir -p ${RUNNER_WORKSPACE}/catkin_ws/src
+          cd ${RUNNER_WORKSPACE}/catkin_ws
+          catkin init
+          catkin build -j2 --no-status -DCMAKE_BUILD_TYPE=Release
+
       - name: Install glog
         run: |
           git clone --depth 1 --branch v0.6.0 https://github.com/google/glog.git
@@ -68,16 +76,9 @@ jobs:
           cmake -E chdir "build" cmake -DBENCHMARK_DOWNLOAD_DEPENDENCIES=on -DCMAKE_BUILD_TYPE=Release ../
           sudo cmake --build "build" --config Release --target install
 
-      - name: Setup catkin workspace
-        run: |
-          . /opt/ros/${{ matrix.ros_distro }}/setup.sh
-          mkdir -p ${RUNNER_WORKSPACE}/catkin_ws/src
-          cd ${RUNNER_WORKSPACE}/catkin_ws/src
-          ln -s ${GITHUB_WORKSPACE}
-          catkin init
-
       - name: Build workspace
         run: |
           . /opt/ros/${{ matrix.ros_distro }}/setup.sh
-          cd ${RUNNER_WORKSPACE}/catkin_ws
+          cd ${RUNNER_WORKSPACE}/catkin_ws/src
+          ln -s ${GITHUB_WORKSPACE}
           catkin build -j2 --no-status -DCMAKE_BUILD_TYPE=Release
