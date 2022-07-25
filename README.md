@@ -49,9 +49,10 @@ To run multithread and show timing every 5 frames do
 roslaunch dsol dsol_data.launch tbb:=1 log:=5
 ```
 
-## Dependencies
+## Dependencies and Install instructions
 
-See CMakeLists.txt for dependencies.
+See CMakeLists.txt for dependencies. You may also check our (Github Action build
+file)[https://github.com/versatran01/dsol/blob/main/.github/workflows/build.yaml] for instructions on how to build DSOL in Ubuntu 20.04 with ROS Noetic.
 
 ## Disclaimer
 
