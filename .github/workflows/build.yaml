@@ -48,7 +48,7 @@ jobs:
         run: |
           git clone --depth 1 --branch 8.1.0 https://github.com/fmtlib/fmt.git
           cd fmt
-          cmake -DCMAKE_POSITION_INDEPENDENT_CODE=TRUE -DCMAKE_CXX_STANDARD=17
+          cmake -DCMAKE_POSITION_INDEPENDENT_CODE=TRUE -DCMAKE_CXX_STANDARD=17 -DFMT_TEST=False
           sudo make install
 
       - name: Install Abseil
@@ -56,7 +56,7 @@ jobs:
           git clone --depth 1 --branch 20220623.0 https://github.com/abseil/abseil-cpp.git
           cd abseil-cpp
           mkdir build && cd build
-          cmake -DABSL_BUILD_TESTING=ON -DABSL_USE_GOOGLETEST_HEAD=ON -DCMAKE_CXX_STANDARD=17 -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_POSITION_INDEPENDENT_CODE=ON ..
+          cmake -DABSL_BUILD_TESTING=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_POSITION_INDEPENDENT_CODE=ON ..
           sudo cmake --build . --target install
 
       - name: Install Sophus
@@ -73,7 +73,7 @@ jobs:
           git clone --depth 1 --branch v1.6.2 https://github.com/google/benchmark.git
           cd benchmark
           cmake -E make_directory "build"
-          cmake -E chdir "build" cmake -DBENCHMARK_DOWNLOAD_DEPENDENCIES=on -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 ../
+          cmake -E chdir "build" cmake -DBENCHMARK_DOWNLOAD_DEPENDENCIES=on -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 -DBENCHMARK_ENABLE_GTEST_TESTS=OFF ../
           sudo cmake --build "build" --config Release --target install
 
       - name: Build workspace
