@@ -1,0 +1,84 @@
+# ROS build pipeline based on kr_mav_control build
+# https://github.com/KumarRobotics/kr_mav_control/blob/master/.github/workflows/build.yml
+name: build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0'
+
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        ros_distro: [noetic]
+
+    runs-on: ubuntu-latest
+    container: osrf/ros:${{ matrix.ros_distro }}-desktop
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Apt dependencies
+        run: |
+          apt-get update
+          apt-get install -qy g++ libeigen3-dev git python3-catkin-tools
+          rosdep update
+          rosdep install --from-paths . --ignore-src -y -r --as-root apt:false
+
+      - name: Setup catkin workspace
+        run: |
+          . /opt/ros/${{ matrix.ros_distro }}/setup.sh
+          mkdir -p ${RUNNER_WORKSPACE}/catkin_ws/src
+          cd ${RUNNER_WORKSPACE}/catkin_ws
+          catkin init
+          catkin build -j2 --no-status -DCMAKE_BUILD_TYPE=Release
+
+      - name: Install glog
+        run: |
+          git clone --depth 1 --branch v0.6.0 https://github.com/google/glog.git
+          cd glog
+          cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_STANDARD=17
+          cmake --build build
+          sudo cmake --build build --target install
+
+      - name: Install fmt
+        run: |
+          git clone --depth 1 --branch 8.1.0 https://github.com/fmtlib/fmt.git
+          cd fmt
+          cmake -DCMAKE_POSITION_INDEPENDENT_CODE=TRUE -DCMAKE_CXX_STANDARD=17 -DFMT_TEST=False
+          sudo make install
+
+      - name: Install Abseil
+        run: |
+          git clone --depth 1 --branch 20220623.0 https://github.com/abseil/abseil-cpp.git
+          cd abseil-cpp
+          mkdir build && cd build
+          cmake -DABSL_BUILD_TESTING=OFF -DCMAKE_CXX_STANDARD=17 -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_POSITION_INDEPENDENT_CODE=ON ..
+          sudo cmake --build . --target install
+
+      - name: Install Sophus
+        run: |
+          git clone https://github.com/strasdat/Sophus.git
+          cd Sophus
+          mkdir build && cd build
+          git checkout 785fef3
+          cmake -DBUILD_SOPHUS_TESTS=OFF -DBUILD_SOPHUS_EXAMPLES=OFF -DCMAKE_CXX_STANDARD=17 ..
+          sudo make install
+
+      - name: Install Google benchmark
+        run: |
+          git clone --depth 1 --branch v1.6.2 https://github.com/google/benchmark.git
+          cd benchmark
+          cmake -E make_directory "build"
+          cmake -E chdir "build" cmake -DBENCHMARK_DOWNLOAD_DEPENDENCIES=on -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 -DBENCHMARK_ENABLE_GTEST_TESTS=OFF ../
+          sudo cmake --build "build" --config Release --target install
+
+      - name: Build workspace
+        run: |
+          . /opt/ros/${{ matrix.ros_distro }}/setup.sh
+          cd ${RUNNER_WORKSPACE}/catkin_ws/src
+          ln -s ${GITHUB_WORKSPACE}
+          catkin build -j2 --no-status -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17
