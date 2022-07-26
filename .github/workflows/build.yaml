@@ -40,7 +40,7 @@ jobs:
         run: |
           git clone --depth 1 --branch v0.6.0 https://github.com/google/glog.git
           cd glog
-          cmake -S . -B build -G "Unix Makefiles"
+          cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_STANDARD=17
           cmake --build build
           sudo cmake --build build --target install
 
@@ -48,7 +48,7 @@ jobs:
         run: |
           git clone --depth 1 --branch 8.1.0 https://github.com/fmtlib/fmt.git
           cd fmt
-          cmake -DCMAKE_POSITION_INDEPENDENT_CODE=TRUE
+          cmake -DCMAKE_POSITION_INDEPENDENT_CODE=TRUE -DCMAKE_CXX_STANDARD=17
           sudo make install
 
       - name: Install Abseil
@@ -65,7 +65,7 @@ jobs:
           cd Sophus
           mkdir build && cd build
           git checkout 785fef3
-          cmake ..
+          cmake -DBUILD_SOPHUS_TEST=Off -DBUILD_SOPHUS_EXAMPLES=Off -DCMAKE_CXX_STANDARD=17 ..
           sudo make install
 
       - name: Install Google benchmark
@@ -73,7 +73,7 @@ jobs:
           git clone --depth 1 --branch v1.6.2 https://github.com/google/benchmark.git
           cd benchmark
           cmake -E make_directory "build"
-          cmake -E chdir "build" cmake -DBENCHMARK_DOWNLOAD_DEPENDENCIES=on -DCMAKE_BUILD_TYPE=Release ../
+          cmake -E chdir "build" cmake -DBENCHMARK_DOWNLOAD_DEPENDENCIES=on -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 ../
           sudo cmake --build "build" --config Release --target install
 
       - name: Build workspace
@@ -81,4 +81,4 @@ jobs:
           . /opt/ros/${{ matrix.ros_distro }}/setup.sh
           cd ${RUNNER_WORKSPACE}/catkin_ws/src
           ln -s ${GITHUB_WORKSPACE}
-          catkin build -j2 --no-status -DCMAKE_BUILD_TYPE=Release
+          catkin build -j2 --no-status -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17
