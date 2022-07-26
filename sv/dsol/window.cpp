@@ -57,6 +57,9 @@ KeyframeStatus KeyframeWindow::RemoveKeyframeAt(int i) {
 
   // Copy status
   KeyframeStatus status = KfAt(i).status();
+  
+  // That's a rotate
+  // https://www.youtube.com/watch?v=W2tWOdzgXHA&t=2561s
 
   // rotate left by 1 from this kf to last
   // Imagine we have 3 valid kfs [0, 1, 2] and we remove 1 (p points at 3)
