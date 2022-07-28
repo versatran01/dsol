@@ -2,7 +2,7 @@
   <arg name="serial_no"           default=""/>
   <arg name="usb_port_id"         default=""/>
   <arg name="device_type"         default=""/>
-  <arg name="json_file_path"      default="/home/chao/Workspace/ws/rs_ws/stereo_30fps.json"/>
+  <arg name="json_file_path"      default="$(find dsol)/launch/stereo_30fps.json"/>
   <arg name="camera"              default="camera"/>
   <arg name="tf_prefix"           default="$(arg camera)"/>
   <arg name="external_manager"    default="false"/>
