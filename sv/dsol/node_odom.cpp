@@ -31,6 +31,9 @@ struct NodeOdom {
   void Cinfo1Cb(const sm::CameraInfo& cinfo1_msg);
   void StereoCb(const sm::ImageConstPtr& image0_ptr,
                 const sm::ImageConstPtr& image1_ptr);
+  void StereoDepthCb(const sm::ImageConstPtr& image0_ptr,
+                     const sm::ImageConstPtr& image1_ptr,
+                     const sm::ImageConstPtr& depth0_ptr);
 
   void TfCamCb(const gm::Transform& tf_cam_msg);
   void TfImuCb(const gm::Transform& tf_imu_msg);
@@ -41,14 +44,18 @@ struct NodeOdom {
   void PublishOdom(const std_msgs::Header& header, const Sophus::SE3d& tf);
   void PublishCloud(const std_msgs::Header& header);
 
-  using StereoSync = mf::TimeSynchronizer<sm::Image, sm::Image>;
+  using SyncStereo = mf::TimeSynchronizer<sm::Image, sm::Image>;
+  using SyncStereoDepth = mf::TimeSynchronizer<sm::Image, sm::Image, sm::Image>;
 
   ros::NodeHandle pnh_;
 
   boost::circular_buffer<sm::Imu> gyrs_;
   mf::Subscriber<sm::Image> sub_image0_;
   mf::Subscriber<sm::Image> sub_image1_;
-  StereoSync sync_stereo_;
+  mf::Subscriber<sm::Image> sub_depth0_;
+
+  std::optional<SyncStereo> sync_stereo_;
+  std::optional<SyncStereoDepth> sync_stereo_depth_;
 
   ros::Subscriber sub_cinfo1_;
   //  ros::Subscriber sub_acc_;
@@ -70,7 +77,7 @@ NodeOdom::NodeOdom(const ros::NodeHandle& pnh)
       gyrs_(50),
       sub_image0_(pnh_, "image0", 5),
       sub_image1_(pnh_, "image1", 5),
-      sync_stereo_(sub_image0_, sub_image1_, 5) {
+      sub_depth0_(pnh_, "depth0", 5) {
   InitOdom();
   InitRosIO();
 }
@@ -95,7 +102,16 @@ void NodeOdom::InitOdom() {
 }
 
 void NodeOdom::InitRosIO() {
-  sync_stereo_.registerCallback(boost::bind(&NodeOdom::StereoCb, this, _1, _2));
+  bool use_depth = pnh_.param<bool>("use_depth", false);
+  if (use_depth) {
+    sync_stereo_depth_.emplace(sub_image0_, sub_image1_, sub_depth0_, 5);
+    sync_stereo_depth_->registerCallback(
+        boost::bind(&NodeOdom::StereoDepthCb, this, _1, _2, _3));
+  } else {
+    sync_stereo_.emplace(sub_image0_, sub_image1_, 5);
+    sync_stereo_->registerCallback(
+        boost::bind(&NodeOdom::StereoCb, this, _1, _2));
+  }
   sub_cinfo1_ = pnh_.subscribe("cinfo1", 1, &NodeOdom::Cinfo1Cb, this);
   sub_gyr_ = pnh_.subscribe("gyr", 200, &NodeOdom::GyrCb, this);
   // sub_acc_ = pnh_.subscribe("acc", 100, &NodeOdom::AccCb, this);
@@ -123,9 +139,22 @@ void NodeOdom::GyrCb(const sensor_msgs::Imu& gyr_msg) {
 
 void NodeOdom::StereoCb(const sensor_msgs::ImageConstPtr& image0_ptr,
                         const sensor_msgs::ImageConstPtr& image1_ptr) {
+  StereoDepthCb(image0_ptr, image1_ptr, nullptr);
+}
+
+void NodeOdom::StereoDepthCb(const sensor_msgs::ImageConstPtr& image0_ptr,
+                             const sensor_msgs::ImageConstPtr& image1_ptr,
+                             const sensor_msgs::ImageConstPtr& depth0_ptr) {
   const auto curr_header = image0_ptr->header;
   const auto image0 = cb::toCvShare(image0_ptr)->image;
   const auto image1 = cb::toCvShare(image1_ptr)->image;
+
+  // depth
+  cv::Mat depth0;
+  if (depth0_ptr) {
+    depth0 = cb::toCvCopy(depth0_ptr)->image;
+    depth0.convertTo(depth0, CV_32FC1, 0.001);  // 16bit in millimeters
+  }
 
   // Get delta time
   static ros::Time prev_stamp;
@@ -169,7 +198,7 @@ void NodeOdom::StereoCb(const sensor_msgs::ImageConstPtr& image0_ptr,
     if (n_imus > 0) dtf_pred.so3() = dR;
   }
 
-  const auto status = odom_.Estimate(image0, image1, dtf_pred);
+  const auto status = odom_.Estimate(image0, image1, dtf_pred, depth0);
   ROS_INFO_STREAM(status.Repr());
 
   // Motion model correct if tracking is ok and not first frame

@@ -1,9 +1,8 @@
 odom:
   marg: false
   num_kfs: 4
-  num_levels: 4
-  min_track_ratio: 0.35
-  min_track_per_kf: 10
+  num_levels: 5
+  min_track_ratio: 0.6
   vis_min_depth: 1.0
   reinit: false
   init_depth: false
@@ -26,24 +25,24 @@ stereo:
   min_zncc: 0.8
   min_depth: 1.0
 align:
-  max_iters: 6
-  max_levels: 0
-  rel_change: 0.01
+  init_level: 0
+  max_iters: 8
+  max_xs: 0.1
   affine: false
   stereo: false
-  c2: 4
+  c2: 2
   dof: 4
   max_outliers: 1
-  grad_factor: 1.0
+  grad_factor: 1.5
   min_depth: 0.1
 adjust:
-  max_iters: 6
-  max_levels: 3
-  rel_change: 0.01
+  init_level: 2
+  max_iters: 5
+  max_xs: 0.1
   affine: false
   stereo: true
-  c2: 4
+  c2: 2
   dof: 4
   max_outliers: 0
-  grad_factor: 1.0
+  grad_factor: 1.5
   min_depth: 0.1

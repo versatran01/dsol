@@ -5,7 +5,7 @@ odom:
   vis_min_depth: 0.5
   min_track_ratio: 0.4
   reinit: false
-  init_depth: false
+  init_depth: true
   init_stereo: true
   init_align: true
 select:
@@ -13,7 +13,9 @@ select:
 stereo:
   match_level: 2
   min_depth: 0.5
+  min_zncc: 0.85
 align:
+  max_iters: 6
   affine: false
   stereo: false
 adjust:

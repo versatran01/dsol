@@ -387,8 +387,7 @@ void DirectOdometry::AddKeyframe(const cv::Mat& depth) {
   // Try to initialize depths of newly selected pixels
   // Initialize from depth image
   int n_depth{};
-  if (cfg_.init_depth) {
-    CHECK(!depth.empty());
+  if (cfg_.init_depth && !depth.empty()) {
     auto t = ts.Scoped("K3_InitDepths");
     n_depth = kf.InitFromDepth(depth, DepthPoint::kOkInfo);
   }
