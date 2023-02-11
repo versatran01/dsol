@@ -242,7 +242,7 @@ void FrameHessian2::AddPatchHess(const PatchHessian2& ph,
   Hij.block<da, da>(ia0, ia1) += ph.A0tA1;
 
   // G1t * ItA1
-  Hjj.block<dp, da>(ia1, 0).noalias() += G1.transpose() * ph.ItA1;
+  Hjj.block<dp, da>(0, ia1).noalias() += G1.transpose() * ph.ItA1;
   // A1t * A1
   Hjj.block<da, da>(ia1, ia1) += ph.A1tA1;
 
