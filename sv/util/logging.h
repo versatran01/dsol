@@ -2,6 +2,7 @@
 
 #include <fmt/color.h>
 #include <fmt/core.h>
+#include <fmt/ostream.h>
 #include <glog/logging.h>
 
 namespace sv {
