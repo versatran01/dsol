@@ -59,3 +59,9 @@ file](https://github.com/versatran01/dsol/blob/main/.github/workflows/build.yaml
 For reproducing the results in the paper, place use the `iros22` branch.
 
 This is the open-source version, advanced features are not included.
+
+## Related
+
+See here for a fast lidar odometry
+https://github.com/versatran01/rofl-beta
+https://github.com/versatran01/llol
