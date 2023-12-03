@@ -54,7 +54,7 @@ bool IsStereoPair(const ImagePyramid& images0, const ImagePyramid& images1);
 /// @brief Construct an image pyramid
 void MakeImagePyramid(const cv::Mat& image, int levels, ImagePyramid& pyramid);
 
-/// @brief Make a gradient image for visulization (stores gradient magnitude)
+/// @brief Make a gradient image for visualization (stores gradient magnitude)
 void MakeGradImage(const cv::Mat& image, cv::Mat& grad);
 
 /// @brief Copy image pyramid from source to target

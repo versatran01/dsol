@@ -124,7 +124,7 @@ class TimerSummary final : public SummaryBase<absl::Duration> {
   /// Create multiple timers if you want to log time in multiple-threads
   class ManualTimer {
    public:
-    /// If start is true then start on construction, otherise stopped
+    /// If start is true then start on construction, otherwise stopped
     ManualTimer(std::string name, TimerSummary* manager, bool start = true);
     virtual ~ManualTimer() noexcept = default;
 

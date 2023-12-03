@@ -201,7 +201,7 @@ struct FrameHessianX : public FrameHessian {
   void Scale(double s = 1.0) noexcept;
   double DiagSum() const noexcept { return Hpp.diagonal().sum(); }
 
-  /// @brief Add value along diagnoal of Hpp
+  /// @brief Add value along diagonal of Hpp
   void AddDiag(int ind, int size, double val);
 
   /// @brief Fix gauge by adding a large value (lambda) to the diagonal of the

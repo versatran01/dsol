@@ -56,7 +56,7 @@ class StereoMatcher {
             const Camera& camera,
             int gsize = 0);
 
-  /// @brief Allocate diparity storage
+  /// @brief Allocate disparity storage
   /// @return number of bytes allocated
   size_t Allocate(const cv::Size& grid_size);
 

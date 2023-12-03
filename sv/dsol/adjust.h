@@ -21,7 +21,7 @@ struct AdjustCost final : public DirectCost {
   Eigen::Array3d bs_fej{0, 0, 0};   // (b0l, b1l, b1r)
   double dinfo{1.0};                // delta info for each warped point
 
-  /// @brief A simple struct to store Jacobians
+  /// @brief A simple struct to store Jacobian
   struct JacGeo {
     FramePoint::Matrix26d du1_dx0;
     FramePoint::Matrix26d du1_dx1;
@@ -89,10 +89,10 @@ class BundleAdjuster final : public DirectMethod {
   /// @return Number of points marginalized
   void Marginalize(KeyframePtrSpan keyframes,
                    const Camera& camera,
-                   int k2rm,
+                   int kf_ind,
                    int gsize = 0);
 
-  /// @brief Resever space for Hessian and Prior
+  /// @brief Reserve space for Hessian and Prior
   size_t Allocate(int max_frames, int max_points_per_frame);
 
   /// @brief Reset prior

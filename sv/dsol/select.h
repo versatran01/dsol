@@ -39,7 +39,7 @@ void CalcPixelGrads(const cv::Mat& image,
 struct SelectCfg {
   int sel_level{1};       // pyramid level for initial selection
   int cell_size{16};      // cell size in top level
-  int min_grad{8};        // mininum grad to be selected
+  int min_grad{8};        // minium grad to be selected
   int max_grad{64};       // wont keep searching if we found pix > max_grad
   int nms_size{1};        // nms size when creating mask
   double min_ratio{0.0};  // decrease min_grad when ratio < min_ratio
@@ -73,7 +73,7 @@ class PixelSelector {
   const PixelGrid& pixels() const noexcept { return pixels_; }
   cv::Size cvsize() const noexcept { return pixels_.cvsize(); }
 
-  /// @brief Select pixels with large graidents
+  /// @brief Select pixels with large gradients
   /// @return Number of selected pixels
   /// @note Selection result is stored in grid()
   int Select(const ImagePyramid& grays, int gsize = 0);

@@ -90,7 +90,7 @@ class FrameAligner final : public DirectMethod {
                          int level,
                          int gsize = 0);
 
-  /// @brief Build Hessian for a signle level
+  /// @brief Build Hessian for a single level
   FrameHessian1 BuildLevel(KeyframePtrSpan keyframes,
                            const Camera& camera,
                            const Frame& frame,

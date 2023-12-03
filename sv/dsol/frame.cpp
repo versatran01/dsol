@@ -16,9 +16,9 @@ std::string Frame::Repr() const {
       size.height,
       levels(),
       is_stereo(),
-      state_.T_w_cl.translation().transpose(),
-      state_.affine_l.ab.transpose(),
-      state_.affine_r.ab.transpose());
+      fmt::streamed(state_.T_w_cl.translation().transpose()),
+      fmt::streamed(state_.affine_l.ab.transpose()),
+      fmt::streamed(state_.affine_r.ab.transpose()));
 }
 
 Frame::Frame(const ImagePyramid& grays_l,
@@ -81,9 +81,9 @@ std::string Keyframe::Repr() const {
       levels(),
       is_stereo(),
       is_fixed(),
-      state_.T_w_cl.translation().transpose(),
-      state_.affine_l.ab.transpose(),
-      state_.affine_r.ab.transpose());
+      fmt::streamed(state_.T_w_cl.translation().transpose()),
+      fmt::streamed(state_.affine_l.ab.transpose()),
+      fmt::streamed(state_.affine_r.ab.transpose()));
 }
 
 FrameState Keyframe::GetFirstEstimate() const noexcept {
@@ -234,7 +234,7 @@ int Keyframe::InitPatchesLevel(int level, int gsize) {
             continue;
           }
 
-          // Finally we have a good pixel and we extract itensity and gradient
+          // Finally we have a good pixel and we extract intensity and gradient
           patch.ExtractAround(image, px_s);
           ++n_patches;
         }  // gc
@@ -407,11 +407,12 @@ const Keyframe& GetKfAt(KeyframePtrConstSpan keyframes, int k) {
 }
 
 std::string FrameState::Repr() const {
-  return fmt::format("State(quat=[{}], trans=[{}], aff_l=[{}], aff_r=[{}])",
-                     T_w_cl.unit_quaternion().coeffs().transpose(),
-                     T_w_cl.translation().transpose(),
-                     affine_l.ab.transpose(),
-                     affine_r.ab.transpose());
+  return fmt::format(
+      "State(quat=[{}], trans=[{}], aff_l=[{}], aff_r=[{}])",
+      fmt::streamed(T_w_cl.unit_quaternion().coeffs().transpose()),
+      fmt::streamed(T_w_cl.translation().transpose()),
+      fmt::streamed(affine_l.ab.transpose()),
+      fmt::streamed(affine_r.ab.transpose()));
 }
 
 cv::Rect2d GetMinBboxInfoGe(const FramePointGrid& points, double min_info) {

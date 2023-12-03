@@ -54,7 +54,7 @@ std::string Camera::Repr() const {
   return fmt::format("Camera(w={}, h={}, fxycxy=[{}], b={}, scale={})",
                      size_.width,
                      size_.height,
-                     fxycxy_.transpose(),
+                     fmt::streamed(fxycxy_.transpose()),
                      baseline_,
                      scale_);
 }
@@ -111,8 +111,8 @@ std::string VignetteModel::Repr() const {
                      map_.cols,
                      map_.rows,
                      max_radius_,
-                     cxy_.transpose(),
-                     vs_.transpose());
+                     fmt::streamed(cxy_.transpose()),
+                     fmt::streamed(vs_.transpose()));
 }
 
 }  // namespace sv::dsol

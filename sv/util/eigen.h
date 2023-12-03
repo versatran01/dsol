@@ -30,8 +30,11 @@ using ArrayMNd = Eigen::Array<double, M, N>;
 /// @details This is a stable rotation, meaning it won't change the order of the
 /// rest of the blocks. For example, assuming the diagonal of a square matrix is
 /// [0, 1, 2, 3, 4] and we want to rotate block 2 to top left. This will result
-/// a new matrix with diagonal [2, 0, 1, 3, 4], instead of [2, 3, 4, 0, 1].
-void StableRotateBlockTopLeft(MatrixXdRef H, VectorXdRef b, int i, int n);
+/// in a new matrix with diagonal [2, 0, 1, 3, 4], instead of [2, 3, 4, 0, 1].
+void StableRotateBlockTopLeft(MatrixXdRef H,
+                              VectorXdRef b,
+                              int block_ind,
+                              int block_size);
 
 /// @brief Fill upper/lower triangular part of M such that M is symmetric
 void FillUpperTriangular(MatrixXdRef M);

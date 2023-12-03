@@ -76,7 +76,8 @@ AdjustStatus BundleAdjuster::AdjustLevel(KeyframePtrSpan keyframes,
       VLOG(2) << LogIter({level, num_levels},
                          {iter, max_iters},
                          {block_.num_costs(), block_.cost()});
-      VLOG(1) << fmt::format("=== Level {} not enough costs {}", level, status);
+      VLOG(1) << fmt::format(
+          "=== Level {} not enough costs {}", level, status.Repr());
       return status;
     }
 
@@ -124,8 +125,8 @@ void BundleAdjuster::Marginalize(KeyframePtrSpan keyframes,
   VLOG(1) << "- block size: " << block_size;
   VLOG(1) << "- schur size: " << schur_size;
 
-  // Construct hessian with residuals that depend only on the kf to be marged
-  // and all points in it (at full resolution level 0)
+  // Construct hessian with residuals that depend only on the kf to be
+  // marginalized and all points in it (at full resolution level 0)
   block_.ResetFull();
   std::mutex mtx;
   BuildLevelKf(keyframes, camera, /*level*/ 0, kf_ind, mtx, gsize);
@@ -363,7 +364,7 @@ FrameHessian2 AdjustCost::Build(const FramePointGrid& points0,
           // then it will be permanently disabled.
           if (point0.HidBad()) continue;
 
-          // Remeber that even with a good point we might have a bad patch
+          // Remember that even with a good point we might have a bad patch
           // in a low res image due to down scaling and too close to border. So
           // we need to check if this patch is ok to use.
           const auto& patch0 = patches0.at(gr, gc);

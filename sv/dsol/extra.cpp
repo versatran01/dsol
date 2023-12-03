@@ -95,7 +95,7 @@ PlayData::PlayData(const Dataset& dataset, const PlayCfg& cfg)
     depths.at(k) = dataset.Get(DataType::kDepth, i);
     poses.at(k) = tf_c0_c;  // gt
 
-    LOG(INFO) << fmt::format("frame {}: {}", k, frames.at(k));
+    LOG(INFO) << fmt::format("frame {}: {}", k, frames.at(k).Repr());
   }
 
   const auto intrin = dataset.Get(DataType::kIntrin, 0);

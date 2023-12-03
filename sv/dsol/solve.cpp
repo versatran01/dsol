@@ -31,7 +31,7 @@ void SolveCholeskyScaled(const MatrixXdCRef& A,
   const auto s =
       (A.diagonal().array().abs() + 10).sqrt().inverse().matrix().eval();
   const auto S = s.asDiagonal();
-  // Note that since S is diagonal, we can safely multipy S * A * S
+  // Note that since S is diagonal, we can safely multiply S * A * S
 
   // As = S * A * S
   // bs = S * b
@@ -39,11 +39,11 @@ void SolveCholeskyScaled(const MatrixXdCRef& A,
   // S*A*S * xs = S*b => A * (S*xs) = b
   // Then x = S * xs
 
-  // From Bjorck Theorem 1.2.7
+  // From Bjork Theorem 1.2.7
   // "It is important to realize that employing an optimal row or column scaling
   // may not improve the computed solution. Indeed, for a fixed pivot sequence,
-  // the solution computed by GE is not affected by such scalings."
-  // Nevertheless, we still scale it to determing whether to stop early or not
+  // the solution computed by GE is not affected by such scaling."
+  // Nevertheless, we still scale it to determine whether to stop early or not
   SolveCholesky(S * A * S, S * b, xs);
   x = S * xs;
 }

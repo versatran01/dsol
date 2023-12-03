@@ -11,14 +11,14 @@ std::string StatsSummary::ReportStats(const std::string& name,
   std::string str = fmt::format(fmt::fg(fmt::color::cyan), "[{:<16}]", name);
 
   str += fmt::format(
-      " n: {:<8} | mean: {:<14.4e} | last: {:<14.4f} | min: {:<14.4f} | "
+      " n: {:<8} | last: {:<14.4f} | mean: {:<14.4e} | min: {:<14.4f} | "
       "max: {:<14.4f} | sum: {:<14.4f} |",
-      stats.count(),
-      stats.mean(),
-      stats.last(),
-      stats.min(),
-      stats.max(),
-      stats.sum());
+      fmt::streamed(stats.count()),
+      fmt::streamed(stats.last()),
+      fmt::streamed(stats.mean()),
+      fmt::streamed(stats.min()),
+      fmt::streamed(stats.max()),
+      fmt::streamed(stats.sum()));
   return str;
 }
 
@@ -57,12 +57,12 @@ std::string TimerSummary::ReportStats(const std::string& name,
   str += fmt::format(
       " n: {:<8} | last: {:<14} | mean: {:<14} | min: {:<14} | max: {:<14} | "
       "sum: {:<14} |",
-      stats.count(),
-      stats.last(),
-      stats.mean(),
-      stats.min(),
-      stats.max(),
-      stats.sum());
+      fmt::streamed(stats.count()),
+      fmt::streamed(stats.last()),
+      fmt::streamed(stats.mean()),
+      fmt::streamed(stats.min()),
+      fmt::streamed(stats.max()),
+      fmt::streamed(stats.sum()));
   return str;
 }
 

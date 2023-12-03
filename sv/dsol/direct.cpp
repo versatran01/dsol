@@ -141,9 +141,11 @@ std::string DirectMethod::LogIter(const std::pair<int, int>& level,
 
 std::string DirectMethod::LogConverge(int level, const DirectStatus& status) {
   if (status.converged) {
-    return fmt::format(color_ok, "=== Level {} converged {}", level, status);
+    return fmt::format(
+        color_ok, "=== Level {} converged {}", level, status.Repr());
   }
-  return fmt::format(color_bad, "=== Level {} diverged {}", level, status);
+  return fmt::format(
+      color_bad, "=== Level {} diverged {}", level, status.Repr());
 }
 
 }  // namespace sv::dsol

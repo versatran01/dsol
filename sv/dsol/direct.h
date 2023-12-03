@@ -6,7 +6,7 @@ namespace sv::dsol {
 
 /// @brief Direct method optimization config
 struct DirectOptmCfg {
-  int init_level{0};   // init level to start optimzation
+  int init_level{0};   // init level to start optimization
   int max_iters{8};    // num max iters per level
   double max_xs{0.1};  // max change in normalized change to stop early
 

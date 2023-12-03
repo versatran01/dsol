@@ -128,7 +128,7 @@ struct Frame {
   }
 };
 
-/// @brief Stores variaus info of this keyframe
+/// @brief Stores various info of this keyframe
 struct KeyframeStatus {
   // frame
   int pixels{};   // num selected pixels

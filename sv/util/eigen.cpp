@@ -60,7 +60,7 @@ void MargTopLeftBlock(const MatrixXdCRef& Hf,
                       int dim) {
   // Pre-condition
   // 1. Hf is square and match bsc and symmetric
-  // 2. Hm is quare and match bpr
+  // 2. Hm is square and match bpr
   const auto nf = bf.size();
   const auto nm = bm.size();
   CHECK_GT(dim, 0);

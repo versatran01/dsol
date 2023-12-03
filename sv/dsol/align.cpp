@@ -119,7 +119,7 @@ AlignStatus FrameAligner::Align2(KeyframePtrSpan keyframes,
   int top_level = init_level;
   // top_level is where we start searching for convergence, we start from the
   // current level and see if we can align frame. If the result is converged,
-  // then we start normal mutil-scale alignment. If not, we go one level up (to
+  // then we start normal mutli-scale alignment. If not, we go one level up (to
   // a lower resolution) until we reach the top. At that point, the entire
   // alignment is deemed not converged and we should reinitialize.
   for (; top_level < frame.levels(); ++top_level) {
@@ -184,7 +184,8 @@ AlignStatus FrameAligner::AlignLevel(KeyframePtrSpan keyframes,
                          {hess.num_costs(), hess.cost()});
       status.num_levels = 0;
       status.converged = false;
-      VLOG(1) << fmt::format("=== Level {} not enough costs {}", level, status);
+      VLOG(1) << fmt::format(
+          "=== Level {} not enough costs {}", level, status.Repr());
       return status;
     }
 
@@ -363,10 +364,10 @@ DepthPoint AlignCost::WarpPatch(const Patch& patch0,
   // First construct all uvs of this patch
   const auto uv0 = ScaleUv(point0.uv(), camera.scale());
   const auto uv0s = (Patch::offsets().colwise() + uv0).eval();
-  
+
   // A much better explanation can be found at
   // https://github.com/symforce-org/symforce/blob/d756d4d2c5dba37f3ae36ebc3fa40ccba8ace5e6/symforce/cam/posed_camera.py#L90
-  
+
   // VERY IMPORTANT NOTE: The normal warping that uses depth is
   //
   // p1  = R10 * n0 / q0 + t10 -> n1 = Proj(p1)
@@ -397,7 +398,7 @@ DepthPoint AlignCost::WarpPatch(const Patch& patch0,
   // and the inverse depth in frame1 is
   // q1 = 1 / z1 = q0 / z1'
   const auto z1 = pt1s.col(0).z() / q0;  // z1' has no scale
-  point1.idepth_ = 1 / z1;               // z1 could be negatvie
+  point1.idepth_ = 1 / z1;               // z1 could be negative
   point1.info_ = DepthPoint::kMinInfo;   // denotes OOB
 
   // Skip points that project too close or to the back of the camera

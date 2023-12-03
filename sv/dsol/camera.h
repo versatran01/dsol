@@ -63,7 +63,7 @@ struct Camera {
   double baseline() const noexcept { return baseline_; }
   bool is_stereo() const noexcept { return baseline_ > 0; }
 
-  /// @brief First project 3d point to normalized image cooridnate, then convert
+  /// @brief First project 3d point to normalized image coordinate, then convert
   /// to pixel coordinate
   /// @param pt, assumes z > 0, otherwise UB
   template <int N>
@@ -76,7 +76,7 @@ struct Camera {
     return uv;
   }
 
-  /// @brief First convert from pixel to normalized image cooridnate, then
+  /// @brief First convert from pixel to normalized image coordinate, then
   /// back-project to 3d (z = 1)
   template <int N>
   MatrixMNd<3, N> Backward(const MatrixMNd<2, N>& uv) const noexcept {

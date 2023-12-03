@@ -332,7 +332,7 @@ void SchurFrameHessian::Solve(VectorXdRef xp, VectorXdRef yp) {
   xp = solver.solve(bp);
   yp = S.inverse() * xp;
 
-  // Inplace decomp modifies storage, so we reset n
+  // Inplace decomposition modifies storage, so we reset n
   n = 0;
 }
 
